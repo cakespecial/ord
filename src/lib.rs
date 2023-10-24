@@ -122,6 +122,7 @@ pub mod inscription_id;
 mod media;
 mod object;
 mod options;
+pub mod ordit;
 mod outgoing;
 mod page_config;
 pub mod rarity;

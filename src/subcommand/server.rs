@@ -6,6 +6,8 @@ use {
   },
   super::*,
   crate::{
+    ordit::inscriptions::{InscriptionData, InscriptionIds},
+    ordit::ordinals::get_ordinals,
     page_config::PageConfig,
     runes::Rune,
     templates::{
@@ -22,7 +24,7 @@ use {
     headers::UserAgent,
     http::{header, HeaderMap, HeaderValue, StatusCode, Uri},
     response::{IntoResponse, Redirect, Response},
-    routing::get,
+    routing::{get, post},
     Router, TypedHeader,
   },
   axum_server::Handle,
@@ -197,6 +199,7 @@ impl Server {
         .route("/feed.xml", get(Self::feed))
         .route("/input/:block/:transaction/:input", get(Self::input))
         .route("/inscription/:inscription_query", get(Self::inscription))
+        .route("/inscriptions", post(Self::inscriptions_from_ids))
         .route("/inscriptions", get(Self::inscriptions))
         .route(
           "/inscriptions/block/:height",
@@ -210,6 +213,7 @@ impl Server {
         .route("/inscriptions/:from/:n", get(Self::inscriptions_from_n))
         .route("/install.sh", get(Self::install_script))
         .route("/ordinal/:sat", get(Self::ordinal))
+        .route("/ordinals/:outpoint", get(Self::ordinals))
         .route("/output/:output", get(Self::output))
         .route("/preview/:inscription_id", get(Self::preview))
         .route("/range/:start/:end", get(Self::range))
@@ -473,6 +477,20 @@ impl Server {
 
   async fn ordinal(Path(sat): Path<String>) -> Redirect {
     Redirect::to(&format!("/sat/{sat}"))
+  }
+
+  async fn ordinals(
+    Extension(index): Extension<Arc<Index>>,
+    Path(outpoint): Path<OutPoint>,
+  ) -> ServerResult<Response> {
+    index
+      .get_transaction(outpoint.txid)?
+      .ok_or_not_found(|| format!("output {outpoint}"))?
+      .output
+      .into_iter()
+      .nth(outpoint.vout as usize)
+      .ok_or_not_found(|| format!("output {outpoint}"))?;
+    Ok(Json(get_ordinals(&index, outpoint)?).into_response())
   }
 
   async fn output(
@@ -1134,6 +1152,36 @@ impl Server {
       .page(page_config)
       .into_response()
     })
+  }
+
+  async fn inscriptions_from_ids(
+    Extension(index): Extension<Arc<Index>>,
+    Json(payload): Json<InscriptionIds>,
+  ) -> ServerResult<Response> {
+    let mut inscriptions: Vec<InscriptionData> = Vec::new();
+    for id in payload.ids {
+      let entry = match index.get_inscription_entry(id)? {
+        Some(entry) => entry,
+        None => continue,
+      };
+
+      let satpoint = match index.get_inscription_satpoint_by_id(id)? {
+        Some(satpoint) => satpoint,
+        None => continue,
+      };
+
+      inscriptions.push(InscriptionData::new(
+        entry.fee,
+        entry.height,
+        id,
+        entry.inscription_number,
+        entry.sequence_number,
+        entry.sat,
+        satpoint,
+        timestamp(entry.timestamp),
+      ));
+    }
+    Ok(Json(inscriptions).into_response())
   }
 
   async fn inscriptions(
