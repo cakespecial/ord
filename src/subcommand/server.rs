@@ -1125,6 +1125,7 @@ impl Server {
         entry.parent,
         next,
         entry.inscription_number,
+        entry.sequence_number,
         output,
         previous,
         entry.sat,
