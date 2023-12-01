@@ -308,41 +308,29 @@ impl Inscription {
   }
 
   pub(crate) fn hidden(&self) -> bool {
+    lazy_static! {
+      static ref CONTENT: Regex = Regex::new(r"^\s*/content/[[:xdigit:]]{64}i\d+\s*$").unwrap();
+    }
+
     let Some(content_type) = self.content_type() else {
-      return false;
+      return true;
     };
 
     if content_type.starts_with("application/json") {
       return true;
     }
 
-    if !content_type.starts_with("text/plain") {
-      return false;
-    }
-
-    let Some(body) = &self.body else {
-      return false;
-    };
-
-    let Ok(text) = str::from_utf8(body) else {
-      return false;
-    };
-
-    let trimmed = text.trim();
-
-    if trimmed.starts_with('{') && trimmed.ends_with('}') {
+    if content_type.starts_with("text/plain") {
       return true;
     }
 
-    if trimmed.starts_with("gib bc1") {
-      return true;
-    }
-
-    if trimmed.ends_with(".bitmap") {
-      return true;
-    }
-
-    if trimmed.ends_with(".btc") {
+    if content_type.starts_with("text/html")
+      && self
+        .body()
+        .and_then(|body| str::from_utf8(body).ok())
+        .map(|body| CONTENT.is_match(body))
+        .unwrap_or_default()
+    {
       return true;
     }
 
@@ -811,22 +799,39 @@ mod tests {
       );
     }
 
-    case(None, None, false);
+    case(None, None, true);
     case(Some("foo"), None, false);
-    case(Some("foo"), Some("{}"), false);
-    case(Some("text/plain"), None, false);
-    case(Some("text/plain"), Some("foo{}bar"), false);
-    case(Some("text/plain"), Some("foo.btc"), true);
-
-    case(Some("text/plain"), Some("foo.bitmap"), true);
-    case(Some("text/plain"), Some("gib bc1"), true);
-    case(Some("text/plain"), Some("{}"), true);
-    case(Some("text/plain"), Some(" {} "), true);
-    case(Some("text/plain;charset=utf-8"), Some("foo.bitmap"), true);
-    case(Some("text/plain;charset=cn-big5"), Some("foo.bitmap"), true);
+    case(Some("text/plain"), None, true);
+    case(
+      Some("text/plain"),
+      Some("The fox jumped. The cow danced."),
+      true,
+    );
+    case(Some("text/plain;charset=utf-8"), Some("foo"), true);
+    case(Some("text/plain;charset=cn-big5"), Some("foo"), true);
     case(Some("application/json"), Some("foo"), true);
+    case(
+      Some("text/markdown"),
+      Some("/content/09a8d837ec0bcaec668ecf405e696a16bee5990863659c224ff888fb6f8f45e7i0"),
+      false,
+    );
+    case(
+      Some("text/html"),
+      Some("/content/09a8d837ec0bcaec668ecf405e696a16bee5990863659c224ff888fb6f8f45e7i0"),
+      true,
+    );
+    case(
+      Some("text/html;charset=utf-8"),
+      Some("/content/09a8d837ec0bcaec668ecf405e696a16bee5990863659c224ff888fb6f8f45e7i0"),
+      true,
+    );
+    case(
+      Some("text/html"),
+      Some("  /content/09a8d837ec0bcaec668ecf405e696a16bee5990863659c224ff888fb6f8f45e7i0  \n"),
+      true,
+    );
 
-    assert!(!Inscription {
+    assert!(Inscription {
       content_type: Some("text/plain".as_bytes().into()),
       body: Some(b"{\xc3\x28}".as_slice().into()),
       ..Default::default()
