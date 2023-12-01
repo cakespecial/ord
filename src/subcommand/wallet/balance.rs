@@ -53,7 +53,7 @@ pub(crate) fn run(options: Options) -> SubcommandResult {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
+  use crate::subcommand::wallet::balance::Output;
 
   #[test]
   fn runes_and_runic_fields_are_not_present_if_none() {
