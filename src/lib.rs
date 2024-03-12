@@ -15,9 +15,9 @@ use {
   self::{
     arguments::Arguments,
     blocktime::Blocktime,
-    config::Config,
     decimal::Decimal,
     inscriptions::{
+      inscription_id,
       media::{self, ImageRendering, Media},
       teleburn, Charm, ParsedEnvelope,
     },
@@ -51,6 +51,7 @@ use {
   lazy_static::lazy_static,
   ordinals::{DeserializeFromStr, Epoch, Height, Rarity, Sat, SatPoint},
   regex::Regex,
+  reqwest::Url,
   serde::{Deserialize, Deserializer, Serialize, Serializer},
   std::{
     cmp::{self, Reverse},
@@ -106,7 +107,6 @@ pub mod api;
 pub mod arguments;
 mod blocktime;
 pub mod chain;
-mod config;
 mod decimal;
 mod fee_rate;
 pub mod index;
@@ -114,7 +114,7 @@ mod inscriptions;
 mod object;
 mod options;
 mod ordzaar;
-mod outgoing;
+pub mod outgoing;
 mod representation;
 pub mod runes;
 mod server_config;
@@ -186,12 +186,11 @@ pub fn parse_ord_server_args(args: &str) -> (Settings, subcommand::server::Serve
   match Arguments::try_parse_from(args.split_whitespace()) {
     Ok(arguments) => match arguments.subcommand {
       Subcommand::Server(server) => (
-        Settings::new(
+        Settings::merge(
           arguments.options,
           vec![("INTEGRATION_TEST".into(), "1".into())]
             .into_iter()
             .collect(),
-          Default::default(),
         )
         .unwrap(),
         server,

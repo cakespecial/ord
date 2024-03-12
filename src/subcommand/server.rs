@@ -81,15 +81,6 @@ impl Display for StaticHtml {
   }
 }
 
-fn chainwork(chainwork: &[u8]) -> u128 {
-  chainwork
-    .iter()
-    .rev()
-    .enumerate()
-    .map(|(i, byte)| u128::from(*byte) * 256u128.pow(i.try_into().unwrap()))
-    .sum()
-}
-
 #[derive(Debug, Parser, Clone)]
 pub struct Server {
   #[arg(
@@ -139,6 +130,11 @@ pub struct Server {
   pub(crate) no_sync: bool,
   #[arg(
     long,
+    help = "Proxy `/content/INSCRIPTION_ID` requests to `<CONTENT_PROXY>/content/INSCRIPTION_ID` if the inscription is not present on current chain."
+  )]
+  pub(crate) content_proxy: Option<Url>,
+  #[arg(
+    long,
     default_value = "5s",
     help = "Poll Bitcoin Core every <POLLING_INTERVAL>."
   )]
@@ -149,6 +145,7 @@ impl Server {
   pub fn run(self, settings: Settings, index: Arc<Index>, handle: Handle) -> SubcommandResult {
     Runtime::new()?.block_on(async {
       let index_clone = index.clone();
+      let integration_test = settings.integration_test();
 
       let index_thread = thread::spawn(move || loop {
         if SHUTTING_DOWN.load(atomic::Ordering::Relaxed) {
@@ -161,7 +158,7 @@ impl Server {
           }
         }
 
-        thread::sleep(if settings.integration_test {
+        thread::sleep(if integration_test {
           Duration::from_millis(100)
         } else {
           self.polling_interval.into()
@@ -175,11 +172,12 @@ impl Server {
 
       let server_config = Arc::new(ServerConfig {
         chain: settings.chain(),
+        content_proxy: self.content_proxy.clone(),
         csp_origin: self.csp_origin.clone(),
+        decompress: self.decompress,
         domain: acme_domains.first().cloned(),
         index_sats: index.has_sat_index(),
         json_api_enabled: !self.disable_json_api,
-        decompress: self.decompress,
       });
 
       let router = Router::new()
@@ -397,7 +395,7 @@ impl Server {
     let address = match &self.address {
       Some(address) => address.as_str(),
       None => {
-        if cfg!(test) || settings.integration_test {
+        if cfg!(test) || settings.integration_test() {
           "127.0.0.1"
         } else {
           "0.0.0.0"
@@ -410,7 +408,7 @@ impl Server {
       .next()
       .ok_or_else(|| anyhow!("failed to get socket addrs"))?;
 
-    if !settings.integration_test && !cfg!(test) {
+    if !settings.integration_test() && !cfg!(test) {
       eprintln!(
         "Listening on {}://{addr}",
         match config {
@@ -451,9 +449,10 @@ impl Server {
   }
 
   fn acme_cache(acme_cache: Option<&PathBuf>, settings: &Settings) -> PathBuf {
-    acme_cache
-      .unwrap_or(&settings.data_dir().join("acme-cache"))
-      .to_path_buf()
+    match acme_cache {
+      Some(acme_cache) => acme_cache.clone(),
+      None => settings.data_dir().join("acme-cache"),
+    }
   }
 
   fn acme_domains(&self) -> Result<Vec<String>> {
@@ -946,6 +945,7 @@ impl Server {
           content_length: inscription.content_length(),
           fee: entry.fee,
           height: entry.height,
+          id: inscription_id,
           number: entry.inscription_number,
           output: satpoint.outpoint,
           value: output.as_ref().map(|o| o.value),
@@ -1174,30 +1174,46 @@ impl Server {
           .ok_or_not_found(|| format!("block {height}"))?,
       };
 
-      let info = index
-        .block_header_info(hash)?
-        .ok_or_not_found(|| format!("block {hash}"))?;
-
       let header = index
         .block_header(hash)?
         .ok_or_not_found(|| format!("block {hash}"))?;
 
+      let info = index
+        .block_header_info(hash)?
+        .ok_or_not_found(|| format!("block {hash}"))?;
+
+      let stats = index
+        .block_stats(info.height.try_into().unwrap())?
+        .ok_or_not_found(|| format!("block {hash}"))?;
+
       Ok(Json(api::BlockInfo {
+        average_fee: stats.avg_fee.to_sat(),
+        average_fee_rate: stats.avg_fee_rate.to_sat(),
         bits: header.bits.to_consensus(),
-        chainwork: chainwork(&info.chainwork),
+        chainwork: info.chainwork.try_into().unwrap(),
         confirmations: info.confirmations,
         difficulty: info.difficulty,
         hash,
         height: info.height.try_into().unwrap(),
+        max_fee: stats.max_fee.to_sat(),
+        max_fee_rate: stats.max_fee_rate.to_sat(),
+        max_tx_size: stats.max_tx_size,
+        median_fee: stats.median_fee.to_sat(),
         median_time: info
           .median_time
           .map(|median_time| median_time.try_into().unwrap()),
         merkle_root: info.merkle_root,
+        min_fee: stats.min_fee.to_sat(),
+        min_fee_rate: stats.min_fee_rate.to_sat(),
         next_block: info.next_block_hash,
         nonce: info.nonce,
         previous_block: info.previous_block_hash,
+        subsidy: stats.subsidy.to_sat(),
         target: target_as_block_hash(header.target()),
         timestamp: info.time.try_into().unwrap(),
+        total_fee: stats.total_fee.to_sat(),
+        total_size: stats.total_size,
+        total_weight: stats.total_weight,
         transaction_count: info.n_tx.try_into().unwrap(),
         #[allow(clippy::cast_sign_loss)]
         version: info.version.to_consensus() as u32,
@@ -1252,6 +1268,32 @@ impl Server {
     Redirect::to("https://docs.ordinals.com/bounty/")
   }
 
+  fn proxy_content(proxy: &Url, inscription_id: InscriptionId) -> ServerResult<Response> {
+    let response = reqwest::blocking::Client::new()
+      .get(format!("{}content/{}", proxy, inscription_id))
+      .send()
+      .map_err(|err| anyhow!(err))?;
+
+    let mut headers = response.headers().clone();
+
+    headers.insert(
+      header::CONTENT_SECURITY_POLICY,
+      HeaderValue::from_str(&format!(
+        "default-src 'self' {proxy} 'unsafe-eval' 'unsafe-inline' data: blob:"
+      ))
+      .map_err(|err| ServerError::Internal(Error::from(err)))?,
+    );
+
+    Ok(
+      (
+        response.status(),
+        headers,
+        response.bytes().map_err(|err| anyhow!(err))?,
+      )
+        .into_response(),
+    )
+  }
+
   async fn content(
     Extension(index): Extension<Arc<Index>>,
     Extension(settings): Extension<Arc<Settings>>,
@@ -1264,9 +1306,16 @@ impl Server {
         return Ok(PreviewUnknownHtml.into_response());
       }
 
-      let mut inscription = index
-        .get_inscription_by_id(inscription_id)?
-        .ok_or_not_found(|| format!("inscription {inscription_id}"))?;
+      let Some(mut inscription) = index.get_inscription_by_id(inscription_id)? else {
+        return if let Some(proxy) = server_config.content_proxy.as_ref() {
+          Self::proxy_content(proxy, inscription_id)
+        } else {
+          Err(ServerError::NotFound(format!(
+            "{} not found",
+            inscription_id
+          )))
+        };
+      };
 
       if let Some(delegate) = inscription.delegate() {
         inscription = index
@@ -1466,18 +1515,6 @@ impl Server {
 
       Ok(if accept_json {
         Json(api::Inscription {
-          inscription_id: info.entry.id,
-          charms: Charm::ALL
-            .iter()
-            .filter(|charm| charm.is_set(info.charms))
-            .map(|charm| charm.title().into())
-            .collect(),
-          children: info.children,
-          inscription_number: info.entry.inscription_number,
-          genesis_height: info.entry.height,
-          parent: info.parent,
-          genesis_fee: info.entry.fee,
-          output_value: info.output.as_ref().map(|o| o.value),
           address: info
             .output
             .as_ref()
@@ -1488,14 +1525,26 @@ impl Server {
                 .ok()
             })
             .map(|address| address.to_string()),
+          charms: Charm::ALL
+            .iter()
+            .filter(|charm| charm.is_set(info.charms))
+            .map(|charm| charm.title().into())
+            .collect(),
+          children: info.children,
+          content_length: info.inscription.content_length(),
+          content_type: info.inscription.content_type().map(|s| s.to_string()),
+          fee: info.entry.fee,
+          height: info.entry.height,
+          id: info.entry.id,
+          number: info.entry.inscription_number,
+          parent: info.parent,
           sat: info.entry.sat,
           satpoint: info.satpoint,
-          content_type: info.inscription.content_type().map(|s| s.to_string()),
-          content_length: info.inscription.content_length(),
           timestamp: timestamp(info.entry.timestamp).timestamp(),
           previous: info.previous,
           next: info.next,
           rune: info.rune,
+          value: info.output.as_ref().map(|o| o.value),
 
           // ---- Ordzaar ----
           inscription_sequence: info.entry.sequence_number,
@@ -1507,11 +1556,11 @@ impl Server {
           chain: server_config.chain,
           charms: Charm::Vindicated.unset(info.charms),
           children: info.children,
-          genesis_fee: info.entry.fee,
-          genesis_height: info.entry.height,
+          fee: info.entry.fee,
+          height: info.entry.height,
           inscription: info.inscription,
-          inscription_id: info.entry.id,
-          inscription_number: info.entry.inscription_number,
+          id: info.entry.id,
+          number: info.entry.inscription_number,
           next: info.next,
           output: info.output,
           parent: info.parent,
@@ -1657,7 +1706,7 @@ impl Server {
 
       Ok(if accept_json {
         Json(api::Inscriptions {
-          inscriptions,
+          ids: inscriptions,
           page_index,
           more,
         })
@@ -1716,7 +1765,7 @@ impl Server {
 
       Ok(if accept_json {
         Json(api::Inscriptions {
-          inscriptions,
+          ids: inscriptions,
           page_index,
           more,
         })
@@ -1827,6 +1876,11 @@ mod tests {
       self
     }
 
+    fn server_option(mut self, option: &str, value: &str) -> Self {
+      self.server_args.insert(option.into(), Some(value.into()));
+      self
+    }
+
     fn server_flag(mut self, flag: &str) -> Self {
       self.server_args.insert(flag.into(), None);
       self
@@ -1871,7 +1925,7 @@ mod tests {
 
       let mut args = vec!["ord".to_string()];
 
-      args.push("--rpc-url".into());
+      args.push("--bitcoin-rpc-url".into());
       args.push(bitcoin_rpc_server.url());
 
       args.push("--cookie-file".into());
@@ -1918,9 +1972,10 @@ mod tests {
         panic!("unexpected subcommand: {:?}", arguments.subcommand);
       };
 
-      let config = serde_yaml::from_str(&self.config).unwrap();
-
-      let settings = Settings::new(arguments.options, Default::default(), config).unwrap();
+      let settings = Settings::from_options(arguments.options)
+        .or(serde_yaml::from_str::<Settings>(&self.config).unwrap())
+        .or_defaults()
+        .unwrap();
 
       let index = Arc::new(Index::open(&settings).unwrap());
       let ord_server_handle = Handle::new();
@@ -1997,6 +2052,7 @@ mod tests {
       Builder::default().build()
     }
 
+    #[track_caller]
     fn get(&self, path: impl AsRef<str>) -> reqwest::blocking::Response {
       if let Err(error) = self.index.update() {
         log::error!("{error}");
@@ -2004,6 +2060,7 @@ mod tests {
       reqwest::blocking::get(self.join_url(path.as_ref())).unwrap()
     }
 
+    #[track_caller]
     pub(crate) fn get_json<T: DeserializeOwned>(&self, path: impl AsRef<str>) -> T {
       if let Err(error) = self.index.update() {
         log::error!("{error}");
@@ -2100,7 +2157,12 @@ mod tests {
   fn parse_server_args(args: &str) -> (Settings, Server) {
     match Arguments::try_parse_from(args.split_whitespace()) {
       Ok(arguments) => match arguments.subcommand {
-        Subcommand::Server(server) => (arguments.options.settings().unwrap(), server),
+        Subcommand::Server(server) => (
+          Settings::from_options(arguments.options)
+            .or_defaults()
+            .unwrap(),
+          server,
+        ),
         subcommand => panic!("unexpected subcommand: {subcommand:?}"),
       },
       Err(err) => panic!("error parsing arguments: {err}"),
@@ -2230,7 +2292,9 @@ mod tests {
   fn acme_cache_defaults_to_data_dir() {
     let arguments = Arguments::try_parse_from(["ord", "--data-dir", "foo", "server"]).unwrap();
 
-    let settings = arguments.options.settings().unwrap();
+    let settings = Settings::from_options(arguments.options)
+      .or_defaults()
+      .unwrap();
 
     let acme_cache = Server::acme_cache(None, &settings).display().to_string();
     assert!(
@@ -2249,7 +2313,9 @@ mod tests {
       Arguments::try_parse_from(["ord", "--data-dir", "foo", "server", "--acme-cache", "bar"])
         .unwrap();
 
-    let settings = arguments.options.settings().unwrap();
+    let settings = Settings::from_options(arguments.options)
+      .or_defaults()
+      .unwrap();
 
     let acme_cache = Server::acme_cache(Some(&"bar".into()), &settings)
       .display()
@@ -4187,7 +4253,7 @@ mod tests {
     server.assert_response_regex(
       format!("/inscription/{}", InscriptionId { txid, index: 0 }),
       StatusCode::OK,
-      r".*<dt>output value</dt>\s*<dd>5000000000</dd>\s*<dt>preview</dt>.*",
+      r".*<dt>value</dt>\s*<dd>5000000000</dd>\s*<dt>preview</dt>.*",
     );
   }
 
@@ -4839,7 +4905,7 @@ next
 <dl>
   <dt>id</dt>
   <dd class=monospace>{id}</dd>
-  <dt>output value</dt>
+  <dt>value</dt>
   .*
 </dl>
 .*
@@ -5050,7 +5116,7 @@ next
 <dl>
   <dt>id</dt>
   <dd class=monospace>{id}</dd>
-  <dt>output value</dt>
+  <dt>value</dt>
   .*
 </dl>
 .*
@@ -5110,7 +5176,7 @@ next
 <dl>
   <dt>id</dt>
   <dd class=monospace>{id}</dd>
-  <dt>output value</dt>
+  <dt>value</dt>
   .*
 </dl>
 .*
@@ -5195,7 +5261,7 @@ next
 <dl>
   <dt>id</dt>
   <dd class=monospace>{id}</dd>
-  <dt>output value</dt>
+  <dt>value</dt>
   <dd>5000000000</dd>
   .*
 </dl>
@@ -5516,14 +5582,37 @@ next
   }
 
   #[test]
-  fn chainwork_conversion_to_integer() {
-    assert_eq!(chainwork(&[]), 0);
-    assert_eq!(chainwork(&[1]), 1);
-    assert_eq!(chainwork(&[1, 0]), 256);
-    assert_eq!(chainwork(&[1, 1]), 257);
-    assert_eq!(chainwork(&[1, 0, 0]), 65536);
-    assert_eq!(chainwork(&[1, 0, 1]), 65537);
-    assert_eq!(chainwork(&[1, 1, 1]), 65793);
+  fn proxy() {
+    let server = TestServer::builder().chain(Chain::Regtest).build();
+
+    server.mine_blocks(1);
+
+    let inscription = Inscription {
+      content_type: Some("text/html".into()),
+      body: Some("foo".into()),
+      ..Default::default()
+    };
+
+    let txid = server.bitcoin_rpc_server.broadcast_tx(TransactionTemplate {
+      inputs: &[(1, 0, 0, inscription.to_witness())],
+      ..Default::default()
+    });
+
+    server.mine_blocks(1);
+
+    let id = InscriptionId { txid, index: 0 };
+
+    server.assert_response(format!("/content/{id}"), StatusCode::OK, "foo");
+
+    let server_with_proxy = TestServer::builder()
+      .chain(Chain::Regtest)
+      .server_option("--content-proxy", server.url.as_ref())
+      .build();
+
+    server_with_proxy.mine_blocks(1);
+
+    server.assert_response(format!("/content/{id}"), StatusCode::OK, "foo");
+    server_with_proxy.assert_response(format!("/content/{id}"), StatusCode::OK, "foo");
   }
 
   #[test]
@@ -5533,23 +5622,35 @@ next
     pretty_assert_eq!(
       server.get_json::<api::BlockInfo>("/r/blockinfo/0"),
       api::BlockInfo {
+        average_fee: 0,
+        average_fee_rate: 0,
         bits: 486604799,
-        chainwork: 0,
+        chainwork: [0; 32],
         confirmations: 0,
         difficulty: 0.0,
         hash: "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
           .parse()
           .unwrap(),
         height: 0,
+        max_fee: 0,
+        max_fee_rate: 0,
+        max_tx_size: 0,
+        median_fee: 0,
         median_time: None,
         merkle_root: TxMerkleNode::all_zeros(),
+        min_fee: 0,
+        min_fee_rate: 0,
         next_block: None,
         nonce: 0,
         previous_block: None,
+        subsidy: 0,
         target: "00000000ffff0000000000000000000000000000000000000000000000000000"
           .parse()
           .unwrap(),
         timestamp: 0,
+        total_fee: 0,
+        total_size: 0,
+        total_weight: 0,
         transaction_count: 0,
         version: 1,
       },
@@ -5560,21 +5661,33 @@ next
     pretty_assert_eq!(
       server.get_json::<api::BlockInfo>("/r/blockinfo/1"),
       api::BlockInfo {
+        average_fee: 0,
+        average_fee_rate: 0,
         bits: 0,
-        chainwork: 0,
+        chainwork: [0; 32],
         confirmations: 0,
         difficulty: 0.0,
         hash: "56d05060a0280d0712d113f25321158747310ece87ea9e299bde06cf385b8d85"
           .parse()
           .unwrap(),
         height: 1,
+        max_fee: 0,
+        max_fee_rate: 0,
+        max_tx_size: 0,
+        median_fee: 0,
         median_time: None,
         merkle_root: TxMerkleNode::all_zeros(),
+        min_fee: 0,
+        min_fee_rate: 0,
         next_block: None,
         nonce: 0,
         previous_block: None,
+        subsidy: 0,
         target: BlockHash::all_zeros(),
         timestamp: 0,
+        total_fee: 0,
+        total_size: 0,
+        total_weight: 0,
         transaction_count: 0,
         version: 1,
       },
@@ -5583,12 +5696,17 @@ next
 
   #[test]
   fn authentication_requires_username_and_password() {
-    assert!(Arguments::try_parse_from(["ord", "--username", "server", "foo"]).is_err());
-    assert!(Arguments::try_parse_from(["ord", "--password", "server", "bar"]).is_err());
-    assert!(
-      Arguments::try_parse_from(["ord", "--username", "foo", "--password", "bar", "server"])
-        .is_ok()
-    );
+    assert!(Arguments::try_parse_from(["ord", "--server-username", "server", "foo"]).is_err());
+    assert!(Arguments::try_parse_from(["ord", "--server-password", "server", "bar"]).is_err());
+    assert!(Arguments::try_parse_from([
+      "ord",
+      "--server-username",
+      "foo",
+      "--server-password",
+      "bar",
+      "server"
+    ])
+    .is_ok());
   }
 
   #[test]

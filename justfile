@@ -18,7 +18,9 @@ clippy:
   cargo clippy --all --all-targets -- --deny warnings
 
 deploy branch remote chain domain:
-  ssh root@{{domain}} 'mkdir -p deploy \
+  ssh root@{{domain}} '\
+    export DEBIAN_FRONTEND=noninteractive \
+    && mkdir -p deploy \
     && apt-get update --yes \
     && apt-get upgrade --yes \
     && apt-get install --yes git rsync'
@@ -151,6 +153,7 @@ update-modern-normalize:
 
 download-log unit='ord' host='alpha.ordinals.net':
   ssh root@{{host}} 'mkdir -p tmp && journalctl -u {{unit}} > tmp/{{unit}}.log'
+  mkdir -p tmp/{{unit}}
   rsync --progress --compress root@{{host}}:tmp/{{unit}}.log tmp/{{unit}}.log
 
 graph log:
@@ -196,3 +199,6 @@ coverage:
 
 benchmark-server:
   cargo bench --bench server
+
+update-contributors:
+  cargo run --release --package update-contributors
