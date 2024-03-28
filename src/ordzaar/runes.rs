@@ -8,7 +8,7 @@ use super::*;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct RuneOutpoint {
-  pub rune: String,
+  pub rune_spaced: String,
   pub amount: String,
   pub divisibility: u8,
   pub symbol: Option<char>,
@@ -24,13 +24,14 @@ pub struct RuneDetailMint {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct RuneDetail {
   pub rune_id: RuneId,
+  pub rune: Rune,
+  pub rune_spaced: String,
   pub burned: String,
   pub divisibility: u8,
   pub etching: Txid,
   pub mint: Option<RuneDetailMint>,
   pub mints: String,
   pub number: String,
-  pub rune: Rune,
   pub spacers: u32,
   pub supply: String,
   pub symbol: Option<char>,
@@ -40,7 +41,7 @@ pub struct RuneDetail {
 impl RuneOutpoint {
   pub fn from_spaced_rune_pile(spaced_rune_piled: (SpacedRune, Pile)) -> Self {
     Self {
-      rune: format!("{}", spaced_rune_piled.0),
+      rune_spaced: spaced_rune_piled.0.to_string(),
       amount: spaced_rune_piled.1.amount.to_string(),
       divisibility: spaced_rune_piled.1.divisibility,
       symbol: spaced_rune_piled.1.symbol,
@@ -62,15 +63,21 @@ impl RuneDetail {
       })
     }
 
+    let rune_spaced = SpacedRune{
+      rune: entry.rune,
+      spacers: entry.spacers
+    };
+
     Self {
       rune_id,
+      rune: entry.rune,
+      rune_spaced: rune_spaced.to_string(),
       burned: entry.burned.to_string(),
       divisibility: entry.divisibility,
       etching: entry.etching,
       mint,
       mints: entry.mints.to_string(),
       number: entry.number.to_string(),
-      rune: entry.rune,
       spacers: entry.spacers,
       supply: entry.supply.to_string(),
       symbol: entry.symbol,
