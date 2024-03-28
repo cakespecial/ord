@@ -423,7 +423,7 @@ impl Server {
         ));
       }
 
-      let mut results = Vec::new();
+      let mut results = HashMap::new();
       for outpoint_str in ordzaar::runes::str_coma_to_array(&query.outpoints) {
         let outpoint_result = OutPoint::from_str(&outpoint_str);
         if !outpoint_result.is_ok() {
@@ -440,7 +440,7 @@ impl Server {
           .map(|rune| ordzaar::runes::RuneOutpoint::from_spaced_rune_pile(rune))
           .collect();
 
-        results.push(response)
+        results.insert(outpoint_str, response);
       }
 
       Ok(Json(results).into_response())
