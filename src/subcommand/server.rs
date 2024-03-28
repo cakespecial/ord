@@ -431,9 +431,7 @@ impl Server {
             "error parsing outpoint: {outpoint_str}"
           )));
         }
-        let outpoint = outpoint_result.as_ref().unwrap();
-
-        let runes = index.get_rune_balances_for_outpoint(outpoint.clone())?;
+        let runes = index.get_rune_balances_for_outpoint(outpoint_result.unwrap())?;
 
         let response: Vec<ordzaar::runes::RuneOutpoint> = runes
           .into_iter()
