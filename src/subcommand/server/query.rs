@@ -44,7 +44,7 @@ impl Display for Inscription {
   }
 }
 
-pub(super) enum Rune {
+pub enum Rune {
   SpacedRune(SpacedRune),
   RuneId(RuneId),
 }
