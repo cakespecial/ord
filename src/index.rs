@@ -1967,6 +1967,13 @@ impl Index {
         satpoint,
         timestamp: timestamp(entry.timestamp.into()).timestamp(),
         value: output.as_ref().map(|o| o.value),
+        // ---- Ordzaar ----
+        inscription_sequence: entry.sequence_number,
+        delegate: inscription.delegate(),
+        content_encoding: inscription
+          .content_encoding_str()
+          .map(|s| s.to_string()),
+        // ---- Ordzaar ----
       },
       output,
       inscription,
