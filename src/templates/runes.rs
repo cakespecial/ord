@@ -39,7 +39,7 @@ mod tests {
       .to_string(),
       "<h1>Runes</h1>
 <ul>
-  <li><a href=/rune/A•A>A•A</a></li>
+  <li><a href=/rune/a•a>a•a</a></li>
 </ul>
 <div class=center>
     prev
@@ -81,8 +81,8 @@ mod tests {
       .to_string(),
       "<h1>Runes</h1>
 <ul>
-  <li><a href=/rune/A>A</a></li>
-  <li><a href=/rune/C>C</a></li>
+  <li><a href=/rune/a>a</a></li>
+  <li><a href=/rune/c>c</a></li>
 </ul>
 <div class=center>
     <a class=prev href=/runes/1>prev</a>

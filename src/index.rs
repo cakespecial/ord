@@ -374,8 +374,8 @@ impl Index {
                 amount: Some(1),
                 cap: Some(u128::MAX),
                 height: (
-                  Some((SUBSIDY_HALVING_INTERVAL * 4).into()),
-                  Some((SUBSIDY_HALVING_INTERVAL * 5).into()),
+                  Some((Rune::FRACTAL_START_INTERVAL * 4).into()),
+                  Some((Rune::FRACTAL_START_INTERVAL * 4 + Rune::FRACTAL_SUBSIDY_HALVING_INTERVAL).into()),
                 ),
                 offset: (None, None),
               }),

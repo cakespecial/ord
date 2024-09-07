@@ -9,18 +9,39 @@ impl Height {
   }
 
   pub fn subsidy(self) -> u64 {
-    Epoch::from(self).subsidy()
+    if self.0 > 1 {
+      Epoch::from(self).subsidy()
+    }else{
+      if self.0 == 0 {
+        50 * 100_000_000  
+      }else {
+        105_000_000 * 100_000_000
+      }
+    }
+
   }
 
   pub fn starting_sat(self) -> Sat {
     let epoch = Epoch::from(self);
     let epoch_starting_sat = epoch.starting_sat();
     let epoch_starting_height = epoch.starting_height();
-    epoch_starting_sat + u64::from(self.n() - epoch_starting_height.n()) * epoch.subsidy()
+    if epoch.0 != 0{
+      epoch_starting_sat + u64::from(self.n() - epoch_starting_height.n()) * epoch.subsidy()
+    }else{
+      if self.n() > 1 {
+        epoch_starting_sat + u64::from(self.n() - epoch_starting_height.n()) * epoch.subsidy() + Epoch::FRACTAL_EPOCH_0_OFFSET          
+      }else{
+        if self.n() == 0 {
+          Sat(0)
+        } else {
+          Sat(50 * 100_000_000)
+        }
+      }
+    }
   }
 
   pub fn period_offset(self) -> u32 {
-    self.0 % DIFFCHANGE_INTERVAL
+    self.0 % Epoch::FRACTAL_DIFFCHANGE_INTERVAL
   }
 }
 
@@ -82,11 +103,11 @@ mod tests {
 
   #[test]
   fn subsidy() {
-    assert_eq!(Height(0).subsidy(), 5000000000);
-    assert_eq!(Height(1).subsidy(), 5000000000);
-    assert_eq!(Height(SUBSIDY_HALVING_INTERVAL - 1).subsidy(), 5000000000);
-    assert_eq!(Height(SUBSIDY_HALVING_INTERVAL).subsidy(), 2500000000);
-    assert_eq!(Height(SUBSIDY_HALVING_INTERVAL + 1).subsidy(), 2500000000);
+    assert_eq!(Height(0).subsidy(), 50 * 100_000_000);
+    assert_eq!(Height(1).subsidy(), 105_000_000 * 100_000_000);
+    assert_eq!(Height(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL - 1).subsidy(), 2500000000);
+    assert_eq!(Height(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL).subsidy(), 1250000000);
+    assert_eq!(Height(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL + 1).subsidy(), 1250000000);
   }
 
   #[test]
@@ -94,16 +115,16 @@ mod tests {
     assert_eq!(Height(0).starting_sat(), 0);
     assert_eq!(Height(1).starting_sat(), 5000000000);
     assert_eq!(
-      Height(SUBSIDY_HALVING_INTERVAL - 1).starting_sat(),
-      (u64::from(SUBSIDY_HALVING_INTERVAL) - 1) * 5000000000
+      Height(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL - 1).starting_sat(),
+      (u64::from(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL) - 1) * 2500000000 + Epoch::FRACTAL_EPOCH_0_OFFSET
     );
     assert_eq!(
-      Height(SUBSIDY_HALVING_INTERVAL).starting_sat(),
-      u64::from(SUBSIDY_HALVING_INTERVAL) * 5000000000
+      Height(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL).starting_sat(),
+      u64::from(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL) * 2500000000 + Epoch::FRACTAL_EPOCH_0_OFFSET
     );
     assert_eq!(
-      Height(SUBSIDY_HALVING_INTERVAL + 1).starting_sat(),
-      u64::from(SUBSIDY_HALVING_INTERVAL) * 5000000000 + 2500000000
+      Height(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL + 1).starting_sat(),
+      u64::from(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL) * 2500000000 + Epoch::FRACTAL_EPOCH_0_OFFSET + 1250000000
     );
     assert_eq!(
       Height(u32::MAX).starting_sat(),
@@ -115,8 +136,8 @@ mod tests {
   fn period_offset() {
     assert_eq!(Height(0).period_offset(), 0);
     assert_eq!(Height(1).period_offset(), 1);
-    assert_eq!(Height(DIFFCHANGE_INTERVAL - 1).period_offset(), 2015);
-    assert_eq!(Height(DIFFCHANGE_INTERVAL).period_offset(), 0);
-    assert_eq!(Height(DIFFCHANGE_INTERVAL + 1).period_offset(), 1);
+    assert_eq!(Height(Epoch::FRACTAL_DIFFCHANGE_INTERVAL - 1).period_offset(), 20159);
+    assert_eq!(Height(Epoch::FRACTAL_DIFFCHANGE_INTERVAL).period_offset(), 0);
+    assert_eq!(Height(Epoch::FRACTAL_DIFFCHANGE_INTERVAL + 1).period_offset(), 1);
   }
 }

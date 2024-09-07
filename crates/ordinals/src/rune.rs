@@ -7,6 +7,9 @@ pub struct Rune(pub u128);
 
 impl Rune {
   const RESERVED: u128 = 6402364363415443603228541259936211926;
+  pub const FRACTAL_START_INTERVAL: u32 = 21000;
+  pub const FRACTAL_SUBSIDY_HALVING_INTERVAL: u32 = 2_100_000 ;
+  const INTERVAL: u32 = Self::FRACTAL_SUBSIDY_HALVING_INTERVAL / 12;
 
   const STEPS: &'static [u128] = &[
     0,
@@ -44,12 +47,13 @@ impl Rune {
   }
 
   pub fn first_rune_height(network: Network) -> u32 {
-    SUBSIDY_HALVING_INTERVAL
+    Self::FRACTAL_START_INTERVAL
       * match network {
         Network::Bitcoin => 4,
         Network::Regtest => 0,
         Network::Signet => 0,
         Network::Testnet => 12,
+        
         _ => 0,
       }
   }
@@ -57,11 +61,9 @@ impl Rune {
   pub fn minimum_at_height(chain: Network, height: Height) -> Self {
     let offset = height.0.saturating_add(1);
 
-    const INTERVAL: u32 = SUBSIDY_HALVING_INTERVAL / 12;
-
     let start = Self::first_rune_height(chain);
 
-    let end = start + SUBSIDY_HALVING_INTERVAL;
+    let end = start + Self::FRACTAL_SUBSIDY_HALVING_INTERVAL;
 
     if offset < start {
       return Rune(Self::STEPS[12]);
@@ -73,15 +75,15 @@ impl Rune {
 
     let progress = offset.saturating_sub(start);
 
-    let length = 12u32.saturating_sub(progress / INTERVAL);
+    let length = 12u32.saturating_sub(progress / Self::INTERVAL);
 
     let end = Self::STEPS[usize::try_from(length - 1).unwrap()];
 
     let start = Self::STEPS[usize::try_from(length).unwrap()];
 
-    let remainder = u128::from(progress % INTERVAL);
+    let remainder = u128::from(progress % Self::INTERVAL);
 
-    Rune(start - ((start - end) * remainder / u128::from(INTERVAL)))
+    Rune(start - ((start - end) * remainder / u128::from(Self::INTERVAL)))
   }
 
   pub fn is_reserved(self) -> bool {
@@ -113,14 +115,14 @@ impl Display for Rune {
   fn fmt(&self, f: &mut Formatter) -> fmt::Result {
     let mut n = self.0;
     if n == u128::MAX {
-      return write!(f, "BCGDENLQRQWDSLRUGSNLBTMFIJAV");
+      return write!(f, "bcgdenlqrqwdslrugsnlbtmfijav");
     }
 
     n += 1;
     let mut symbol = String::new();
     while n > 0 {
       symbol.push(
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz"
           .chars()
           .nth(((n - 1) % 26) as usize)
           .unwrap(),
@@ -147,8 +149,8 @@ impl FromStr for Rune {
       }
       x = x.checked_mul(26).ok_or(Error::Range)?;
       match c {
-        'A'..='Z' => {
-          x = x.checked_add(c as u128 - 'A' as u128).ok_or(Error::Range)?;
+        'a'..='z' => {
+          x = x.checked_add(c as u128 - 'a' as u128).ok_or(Error::Range)?;
         }
         _ => return Err(Error::Character(c)),
       }
@@ -185,52 +187,53 @@ mod tests {
       assert_eq!(s.parse::<Rune>().unwrap(), Rune(n));
     }
 
-    case(0, "A");
-    case(1, "B");
-    case(2, "C");
-    case(3, "D");
-    case(4, "E");
-    case(5, "F");
-    case(6, "G");
-    case(7, "H");
-    case(8, "I");
-    case(9, "J");
-    case(10, "K");
-    case(11, "L");
-    case(12, "M");
-    case(13, "N");
-    case(14, "O");
-    case(15, "P");
-    case(16, "Q");
-    case(17, "R");
-    case(18, "S");
-    case(19, "T");
-    case(20, "U");
-    case(21, "V");
-    case(22, "W");
-    case(23, "X");
-    case(24, "Y");
-    case(25, "Z");
-    case(26, "AA");
-    case(27, "AB");
-    case(51, "AZ");
-    case(52, "BA");
-    case(u128::MAX - 2, "BCGDENLQRQWDSLRUGSNLBTMFIJAT");
-    case(u128::MAX - 1, "BCGDENLQRQWDSLRUGSNLBTMFIJAU");
-    case(u128::MAX, "BCGDENLQRQWDSLRUGSNLBTMFIJAV");
+    case(0, "a");
+    case(1, "b");
+    case(2, "c");
+    case(3, "d");
+    case(4, "e");
+    case(5, "f");
+    case(6, "g");
+    case(7, "h");
+    case(8, "i");
+    case(9, "j");
+    case(10, "k");
+    case(11, "l");
+    case(12, "m");
+    case(13, "n");
+    case(14, "o");
+    case(15, "p");
+    case(16, "q");
+    case(17, "r");
+    case(18, "s");
+    case(19, "t");
+    case(20, "u");
+    case(21, "v");
+    case(22, "w");
+    case(23, "x");
+    case(24, "y");
+    case(25, "z");
+    case(26, "aa");
+    case(27, "ab");
+    case(51, "az");
+    case(52, "ba");
+    case(u128::MAX - 2, "bcgdenlqrqwdslrugsnlbtmfijat");
+    case(u128::MAX - 1, "bcgdenlqrqwdslrugsnlbtmfijau");
+    case(u128::MAX, "bcgdenlqrqwdslrugsnlbtmfijav");
+    case(2055900680524219742,"uncommongoods");
   }
 
   #[test]
   fn from_str_error() {
     assert_eq!(
-      "BCGDENLQRQWDSLRUGSNLBTMFIJAW".parse::<Rune>().unwrap_err(),
+      "bcgdenlqrqwdslrugsnlbtmfijaw".parse::<Rune>().unwrap_err(),
       Error::Range,
     );
     assert_eq!(
-      "BCGDENLQRQWDSLRUGSNLBTMFIJAVX".parse::<Rune>().unwrap_err(),
+      "bcgdenlqrqwdslrugsnlbstmfijavx".parse::<Rune>().unwrap_err(),
       Error::Range,
     );
-    assert_eq!("x".parse::<Rune>().unwrap_err(), Error::Character('x'));
+    assert_eq!("X".parse::<Rune>().unwrap_err(), Error::Character('X'));
   }
 
   #[test]
@@ -246,77 +249,77 @@ mod tests {
       );
     }
 
-    const START: u32 = SUBSIDY_HALVING_INTERVAL * 4;
-    const END: u32 = START + SUBSIDY_HALVING_INTERVAL;
-    const INTERVAL: u32 = SUBSIDY_HALVING_INTERVAL / 12;
+    const START: u32 = Rune::FRACTAL_START_INTERVAL * 4;
+    const END: u32 = START + Rune::FRACTAL_SUBSIDY_HALVING_INTERVAL;
+    const INTERVAL: u32 = Rune::FRACTAL_SUBSIDY_HALVING_INTERVAL / 12;
 
-    case(0, "AAAAAAAAAAAAA");
-    case(START / 2, "AAAAAAAAAAAAA");
-    case(START, "ZZYZXBRKWXVA");
-    case(START + 1, "ZZXZUDIVTVQA");
-    case(END - 1, "A");
-    case(END, "A");
-    case(END + 1, "A");
-    case(u32::MAX, "A");
+    case(0, "aaaaaaaaaaaaa");
+    case(START / 2, "aaaaaaaaaaaaa");
+    case(START, "zzzxkctymrzn");
+    case(START + 1, "zzzuufnwzjza");
+    case(END - 1, "a");
+    case(END, "a");
+    case(END + 1, "a");
+    case(u32::MAX, "a");
 
-    case(START + INTERVAL * 00 - 1, "AAAAAAAAAAAAA");
-    case(START + INTERVAL * 00 + 0, "ZZYZXBRKWXVA");
-    case(START + INTERVAL * 00 + 1, "ZZXZUDIVTVQA");
+    case(START + INTERVAL * 00 - 1, "aaaaaaaaaaaaa");
+    case(START + INTERVAL * 00 + 0, "zzzxkctymrzn");
+    case(START + INTERVAL * 00 + 1, "zzzuufnwzjza");
 
-    case(START + INTERVAL * 01 - 1, "AAAAAAAAAAAA");
-    case(START + INTERVAL * 01 + 0, "ZZYZXBRKWXV");
-    case(START + INTERVAL * 01 + 1, "ZZXZUDIVTVQ");
+    case(START + INTERVAL * 01 - 1, "aaaaaaaaaaaa");
+    case(START + INTERVAL * 01 + 0, "zzzxkctymsa");
+    case(START + INTERVAL * 01 + 1, "zzzuufnwzjz");
 
-    case(START + INTERVAL * 02 - 1, "AAAAAAAAAAA");
-    case(START + INTERVAL * 02 + 0, "ZZYZXBRKWY");
-    case(START + INTERVAL * 02 + 1, "ZZXZUDIVTW");
+    case(START + INTERVAL * 02 - 1, "aaaaaaaaaaa");
+    case(START + INTERVAL * 02 + 0, "zzzxkctyms");
+    case(START + INTERVAL * 02 + 1, "zzzuufnwzk");
 
-    case(START + INTERVAL * 03 - 1, "AAAAAAAAAA");
-    case(START + INTERVAL * 03 + 0, "ZZYZXBRKX");
-    case(START + INTERVAL * 03 + 1, "ZZXZUDIVU");
+    case(START + INTERVAL * 03 - 1, "aaaaaaaaaa");
+    case(START + INTERVAL * 03 + 0, "zzzxkctyn");
+    case(START + INTERVAL * 03 + 1, "zzzuufnxa");
 
-    case(START + INTERVAL * 04 - 1, "AAAAAAAAA");
-    case(START + INTERVAL * 04 + 0, "ZZYZXBRL");
-    case(START + INTERVAL * 04 + 1, "ZZXZUDIW");
+    case(START + INTERVAL * 04 - 1, "aaaaaaaaa");
+    case(START + INTERVAL * 04 + 0, "zzzxkctz");
+    case(START + INTERVAL * 04 + 1, "zzzuufnx");
 
-    case(START + INTERVAL * 05 - 1, "AAAAAAAA");
-    case(START + INTERVAL * 05 + 0, "ZZYZXBS");
-    case(START + INTERVAL * 05 + 1, "ZZXZUDJ");
+    case(START + INTERVAL * 05 - 1, "aaaaaaaa");
+    case(START + INTERVAL * 05 + 0, "zzzxkcu");
+    case(START + INTERVAL * 05 + 1, "zzzuufo");
 
-    case(START + INTERVAL * 06 - 1, "AAAAAAA");
-    case(START + INTERVAL * 06 + 0, "ZZYZXC");
-    case(START + INTERVAL * 06 + 1, "ZZXZUE");
+    case(START + INTERVAL * 06 - 1, "aaaaaaa");
+    case(START + INTERVAL * 06 + 0, "zzzxkd");
+    case(START + INTERVAL * 06 + 1, "zzzuug");
 
-    case(START + INTERVAL * 07 - 1, "AAAAAA");
-    case(START + INTERVAL * 07 + 0, "ZZYZY");
-    case(START + INTERVAL * 07 + 1, "ZZXZV");
+    case(START + INTERVAL * 07 - 1, "aaaaaa");
+    case(START + INTERVAL * 07 + 0, "zzzxl");
+    case(START + INTERVAL * 07 + 1, "zzzuv");
 
-    case(START + INTERVAL * 08 - 1, "AAAAA");
-    case(START + INTERVAL * 08 + 0, "ZZZA");
-    case(START + INTERVAL * 08 + 1, "ZZYA");
+    case(START + INTERVAL * 08 - 1, "aaaaa");
+    case(START + INTERVAL * 08 + 0, "zzzy");
+    case(START + INTERVAL * 08 + 1, "zzzv");
 
-    case(START + INTERVAL * 09 - 1, "AAAA");
-    case(START + INTERVAL * 09 + 0, "ZZZ");
-    case(START + INTERVAL * 09 + 1, "ZZY");
+    case(START + INTERVAL * 09 - 1, "aaaa");
+    case(START + INTERVAL * 09 + 0, "aaaa");
+    case(START + INTERVAL * 09 + 1, "aaaa");
 
-    case(START + INTERVAL * 10 - 2, "AAC");
-    case(START + INTERVAL * 10 - 1, "AAA");
-    case(START + INTERVAL * 10 + 0, "AAA");
-    case(START + INTERVAL * 10 + 1, "AAA");
+    case(START + INTERVAL * 10 - 2, "aab");
+    case(START + INTERVAL * 10 - 1, "aaa");
+    case(START + INTERVAL * 10 + 0, "aaa");
+    case(START + INTERVAL * 10 + 1, "aaa");
 
-    case(START + INTERVAL * 10 + INTERVAL / 2, "NA");
+    case(START + INTERVAL * 10 + INTERVAL / 2, "na");
 
-    case(START + INTERVAL * 11 - 2, "AB");
-    case(START + INTERVAL * 11 - 1, "AA");
-    case(START + INTERVAL * 11 + 0, "AA");
-    case(START + INTERVAL * 11 + 1, "AA");
+    case(START + INTERVAL * 11 - 2, "ab");
+    case(START + INTERVAL * 11 - 1, "aa");
+    case(START + INTERVAL * 11 + 0, "aa");
+    case(START + INTERVAL * 11 + 1, "aa");
 
-    case(START + INTERVAL * 11 + INTERVAL / 2, "N");
+    case(START + INTERVAL * 11 + INTERVAL / 2, "n");
 
-    case(START + INTERVAL * 12 - 2, "B");
-    case(START + INTERVAL * 12 - 1, "A");
-    case(START + INTERVAL * 12 + 0, "A");
-    case(START + INTERVAL * 12 + 1, "A");
+    case(START + INTERVAL * 12 - 2, "b");
+    case(START + INTERVAL * 12 - 1, "a");
+    case(START + INTERVAL * 12 + 0, "a");
+    case(START + INTERVAL * 12 + 1, "a");
   }
 
   #[test]
@@ -329,34 +332,34 @@ mod tests {
       );
     }
 
-    case(Network::Testnet, 0, "AAAAAAAAAAAAA");
+    case(Network::Testnet, 0, "aaaaaaaaaaaaa");
     case(
       Network::Testnet,
-      SUBSIDY_HALVING_INTERVAL * 12 - 1,
-      "AAAAAAAAAAAAA",
+      Rune::FRACTAL_START_INTERVAL * 12 - 1,
+      "aaaaaaaaaaaaa",
     );
     case(
       Network::Testnet,
-      SUBSIDY_HALVING_INTERVAL * 12,
-      "ZZYZXBRKWXVA",
+      Rune::FRACTAL_START_INTERVAL * 12,
+      "zzzxkctymrzn",
     );
     case(
       Network::Testnet,
-      SUBSIDY_HALVING_INTERVAL * 12 + 1,
-      "ZZXZUDIVTVQA",
+      Rune::FRACTAL_START_INTERVAL * 12 + 1,
+      "zzzuufnwzjza",
     );
 
-    case(Network::Signet, 0, "ZZYZXBRKWXVA");
-    case(Network::Signet, 1, "ZZXZUDIVTVQA");
+    case(Network::Signet, 0, "zzzxkctymrzn");
+    case(Network::Signet, 1, "zzzuufnwzjza");
 
-    case(Network::Regtest, 0, "ZZYZXBRKWXVA");
-    case(Network::Regtest, 1, "ZZXZUDIVTVQA");
+    case(Network::Regtest, 0, "zzzxkctymrzn");
+    case(Network::Regtest, 1, "zzzuufnwzjza");
   }
 
   #[test]
   fn serde() {
     let rune = Rune(0);
-    let json = "\"A\"";
+    let json = "\"a\"";
     assert_eq!(serde_json::to_string(&rune).unwrap(), json);
     assert_eq!(serde_json::from_str::<Rune>(json).unwrap(), rune);
   }
@@ -365,7 +368,7 @@ mod tests {
   fn reserved() {
     assert_eq!(
       Rune::RESERVED,
-      "AAAAAAAAAAAAAAAAAAAAAAAAAAA".parse::<Rune>().unwrap().0,
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaa".parse::<Rune>().unwrap().0,
     );
 
     assert_eq!(Rune::reserved(0, 0), Rune(Rune::RESERVED));
@@ -385,17 +388,17 @@ mod tests {
       assert_eq!(rune.parse::<Rune>().unwrap().is_reserved(), reserved);
     }
 
-    case("A", false);
-    case("ZZZZZZZZZZZZZZZZZZZZZZZZZZ", false);
-    case("AAAAAAAAAAAAAAAAAAAAAAAAAAA", true);
-    case("AAAAAAAAAAAAAAAAAAAAAAAAAAB", true);
-    case("BCGDENLQRQWDSLRUGSNLBTMFIJAV", true);
+    case("a", false);
+    case("zzzzzzzzzzzzzzzzzzzzzzzzzz", false);
+    case("aaaaaaaaaaaaaaaaaaaaaaaaaaa", true);
+    case("aaaaaaaaaaaaaaaaaaaaaaaaaab", true);
+    case("bcgdenlqrqwdslrugsnlbtmfijav", true);
   }
 
   #[test]
   fn steps() {
     for i in 0.. {
-      match "A".repeat(i + 1).parse::<Rune>() {
+      match "a".repeat(i + 1).parse::<Rune>() {
         Ok(rune) => assert_eq!(Rune(Rune::STEPS[i]), rune),
         Err(_) => {
           assert_eq!(Rune::STEPS.len(), i);

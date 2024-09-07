@@ -10,6 +10,8 @@ pub enum Chain {
   Testnet,
   Signet,
   Regtest,
+  FractalMainnet,
+  FractalTestnet,
 }
 
 impl Chain {
@@ -23,12 +25,14 @@ impl Chain {
       Self::Regtest => 18443,
       Self::Signet => 38332,
       Self::Testnet => 18332,
+      Self::FractalMainnet => 8332,
+      Self::FractalTestnet => 8332,
     }
   }
 
   pub(crate) fn inscription_content_size_limit(self) -> Option<usize> {
     match self {
-      Self::Mainnet | Self::Regtest => None,
+      Self::Mainnet | Self::Regtest | Self::FractalMainnet | Self::FractalTestnet => None,
       Self::Testnet | Self::Signet => Some(1024),
     }
   }
@@ -39,6 +43,8 @@ impl Chain {
       Self::Regtest => 0,
       Self::Signet => 112402,
       Self::Testnet => 2413343,
+      Self::FractalMainnet => 21000,
+      Self::FractalTestnet => 21000,
     }
   }
 
@@ -52,6 +58,8 @@ impl Chain {
       Self::Regtest => 110,
       Self::Signet => 175392,
       Self::Testnet => 2544192,
+      Self::FractalMainnet => 21000,
+      Self::FractalTestnet => 21000,
     }
   }
 
@@ -76,6 +84,8 @@ impl Chain {
       Self::Testnet => data_dir.as_ref().join("testnet3"),
       Self::Signet => data_dir.as_ref().join("signet"),
       Self::Regtest => data_dir.as_ref().join("regtest"),
+      Self::FractalMainnet => data_dir.as_ref().join("fractal-mainnet"),
+      Self::FractalTestnet => data_dir.as_ref().join("fractal-testnet"),
     }
   }
 }
@@ -87,6 +97,8 @@ impl From<Chain> for Network {
       Chain::Testnet => Network::Testnet,
       Chain::Signet => Network::Signet,
       Chain::Regtest => Network::Regtest,
+      Chain::FractalMainnet => Network::Bitcoin,
+      Chain::FractalTestnet => Network::Bitcoin,
     }
   }
 }
@@ -101,6 +113,8 @@ impl Display for Chain {
         Self::Regtest => "regtest",
         Self::Signet => "signet",
         Self::Testnet => "testnet",
+        Self::FractalMainnet => "fractal-mainnet",
+        Self::FractalTestnet => "fractal-testnet",
       }
     )
   }
@@ -115,6 +129,8 @@ impl FromStr for Chain {
       "regtest" => Ok(Self::Regtest),
       "signet" => Ok(Self::Signet),
       "testnet" => Ok(Self::Testnet),
+      "fractal-mainnet" => Ok(Self::FractalMainnet),
+      "fractal-testnet" => Ok(Self::FractalTestnet),
       _ => Err(SnafuError::InvalidChain {
         chain: s.to_string(),
       }),
@@ -132,6 +148,8 @@ mod tests {
     assert_eq!("regtest".parse::<Chain>().unwrap(), Chain::Regtest);
     assert_eq!("signet".parse::<Chain>().unwrap(), Chain::Signet);
     assert_eq!("testnet".parse::<Chain>().unwrap(), Chain::Testnet);
+    assert_eq!("fractal-mainnet".parse::<Chain>().unwrap(), Chain::FractalMainnet);
+    assert_eq!("fractal-testnet".parse::<Chain>().unwrap(), Chain::FractalTestnet);
     assert_eq!(
       "foo".parse::<Chain>().unwrap_err().to_string(),
       "Invalid chain `foo`"
