@@ -607,7 +607,7 @@ impl<'index> Updater<'index> {
           input_sat_ranges = VecDeque::new();
 
           for input_utxo_entry in &input_utxo_entries {
-            for chunk in input_utxo_entry.sat_ranges().chunks_exact(11) {
+            for chunk in input_utxo_entry.sat_ranges().chunks_exact(14) {
               input_sat_ranges.push_back(SatRange::load(chunk.try_into().unwrap()));
             }
           }
