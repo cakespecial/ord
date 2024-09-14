@@ -25,12 +25,12 @@ Fractal Bitcoin
 ------
 Run on Fractal Bitcoin Mainnet
 ```
-ord server --chain=fractal-mainnet
+ord --chain=fractal-mainnet server
 ```
 
 Run on Fractal Bitcoin Testnet
 ```
-ord server --chain=fractal-testnet
+ord --chain=fractal-testnet server
 ```
 
 Donate
