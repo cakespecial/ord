@@ -33,6 +33,9 @@ Run on Fractal Bitcoin Testnet
 ord --chain=fractal-testnet server
 ```
 
+Please do not set `first_inscription_height` and  `no_index_inscriptions` 
+
+
 Donate
 ------
 
