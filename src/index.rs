@@ -374,8 +374,8 @@ impl Index {
                 amount: Some(1),
                 cap: Some(u128::MAX),
                 height: (
-                  Some((SUBSIDY_HALVING_INTERVAL * 4).into()),
-                  Some((SUBSIDY_HALVING_INTERVAL * 5).into()),
+                  Some((Rune::FRACTAL_START_INTERVAL * 4).into()),
+                  Some((Rune::FRACTAL_START_INTERVAL * 4 + Rune::FRACTAL_SUBSIDY_HALVING_INTERVAL).into()),
                 ),
                 offset: (None, None),
               }),
@@ -1576,7 +1576,7 @@ impl Index {
       let sat_ranges = utxo_entry.value().parse(self).sat_ranges();
 
       let mut offset = 0;
-      for chunk in sat_ranges.chunks_exact(11) {
+      for chunk in sat_ranges.chunks_exact(14) {
         let (start, end) = SatRange::load(chunk.try_into().unwrap());
         if start <= sat && sat < end {
           return Ok(Some(SatPoint {
@@ -1616,7 +1616,7 @@ impl Index {
       let sat_ranges = utxo_entry.value().parse(self).sat_ranges();
 
       let mut offset = 0;
-      for sat_range in sat_ranges.chunks_exact(11) {
+      for sat_range in sat_ranges.chunks_exact(14) {
         let (start, end) = SatRange::load(sat_range.try_into().unwrap());
 
         if end > range_start && start < range_end {
@@ -1661,7 +1661,7 @@ impl Index {
             .value()
             .parse(self)
             .sat_ranges()
-            .chunks_exact(11)
+            .chunks_exact(14)
             .map(|chunk| SatRange::load(chunk.try_into().unwrap()))
             .collect::<Vec<(u64, u64)>>()
         }),
@@ -4518,7 +4518,7 @@ mod tests {
             i,
             if i == 1 { 0 } else { 1 },
             0,
-            inscription("text/plain;charset=utf-8", &format!("hello {}", i)).to_witness(),
+            inscription("text/plain;charset=utf-8", format!("hello {i}")).to_witness(),
           )], // for the first inscription use coinbase, otherwise use the previous tx
           ..default()
         });
@@ -6702,5 +6702,17 @@ mod tests {
     // good error messages in older versions, the schema statistic key must be
     // zero
     assert_eq!(Statistic::Schema.key(), 0);
+  }
+
+  #[test]
+  fn reminder_to_update_utxo_entry_type_name() {
+    // This test will break when the schema version is updated, and is a
+    // reminder to fix the type name in `impl redb::Value for &UtxoEntry`.
+    //
+    // The type name should be changed from `ord::index::utxo_entry::UtxoValue`
+    // to `ord::UtxoEntry`. I think it's probably best if we just name types
+    // `ord::NAME`, instead of including the full path, since the full path
+    // will change if we reorganize the code.
+    assert_eq!(SCHEMA_VERSION, 28);
   }
 }

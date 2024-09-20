@@ -23,7 +23,7 @@ impl FromStr for SpacedRune {
 
     for c in s.chars() {
       match c {
-        'A'..='Z' => rune.push(c),
+        'a'..='z' => rune.push(c),
         '.' | '•' => {
           let flag = 1 << rune.len().checked_sub(1).ok_or(Error::LeadingSpacer)?;
           if spacers & flag != 0 {
@@ -91,15 +91,15 @@ mod tests {
 
   #[test]
   fn display() {
-    assert_eq!("A.B".parse::<SpacedRune>().unwrap().to_string(), "A•B");
-    assert_eq!("A.B.C".parse::<SpacedRune>().unwrap().to_string(), "A•B•C");
+    assert_eq!("a.b".parse::<SpacedRune>().unwrap().to_string(), "a•b");
+    assert_eq!("a.b.c".parse::<SpacedRune>().unwrap().to_string(), "a•b•c");
     assert_eq!(
       SpacedRune {
         rune: Rune(0),
         spacers: 1
       }
       .to_string(),
-      "A"
+      "a"
     );
   }
 
@@ -117,30 +117,30 @@ mod tests {
     }
 
     assert_eq!(
-      ".A".parse::<SpacedRune>().unwrap_err(),
+      ".a".parse::<SpacedRune>().unwrap_err(),
       Error::LeadingSpacer,
     );
 
     assert_eq!(
-      "A..B".parse::<SpacedRune>().unwrap_err(),
+      "a..b".parse::<SpacedRune>().unwrap_err(),
       Error::DoubleSpacer,
     );
 
     assert_eq!(
-      "A.".parse::<SpacedRune>().unwrap_err(),
+      "a.".parse::<SpacedRune>().unwrap_err(),
       Error::TrailingSpacer,
     );
 
     assert_eq!(
-      "Ax".parse::<SpacedRune>().unwrap_err(),
-      Error::Character('x')
+      "aX".parse::<SpacedRune>().unwrap_err(),
+      Error::Character('X')
     );
 
-    case("A.B", "AB", 0b1);
-    case("A.B.C", "ABC", 0b11);
-    case("A•B", "AB", 0b1);
-    case("A•B•C", "ABC", 0b11);
-    case("A•BC", "ABC", 0b1);
+    case("a.b", "ab", 0b1);
+    case("a.b.c", "abc", 0b11);
+    case("a•b", "ab", 0b1);
+    case("a•b•c", "abc", 0b11);
+    case("a•bc", "abc", 0b1);
   }
 
   #[test]
@@ -149,7 +149,7 @@ mod tests {
       rune: Rune(26),
       spacers: 1,
     };
-    let json = "\"A•A\"";
+    let json = "\"a•a\"";
     assert_eq!(serde_json::to_string(&spaced_rune).unwrap(), json);
     assert_eq!(
       serde_json::from_str::<SpacedRune>(json).unwrap(),

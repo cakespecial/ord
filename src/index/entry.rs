@@ -451,18 +451,18 @@ impl Entry for SatPoint {
 pub(super) type SatRange = (u64, u64);
 
 impl Entry for SatRange {
-  type Value = [u8; 11];
+  type Value = [u8; 14];
 
-  fn load([b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10]: Self::Value) -> Self {
+  fn load([b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13]: Self::Value) -> Self {
     let raw_base = u64::from_le_bytes([b0, b1, b2, b3, b4, b5, b6, 0]);
 
-    // 51 bit base
-    let base = raw_base & ((1 << 51) - 1);
+    // 55 bit base
+    let base = raw_base & ((1 << 55) - 1);
 
-    let raw_delta = u64::from_le_bytes([b6, b7, b8, b9, b10, 0, 0, 0]);
+    let raw_delta = u64::from_le_bytes([b6, b7, b8, b9, b10, b11, b12, b13]);
 
     // 33 bit delta
-    let delta = raw_delta >> 3;
+    let delta = raw_delta >> 7;
 
     (base, base + delta)
   }
@@ -470,8 +470,8 @@ impl Entry for SatRange {
   fn store(self) -> Self::Value {
     let base = self.0;
     let delta = self.1 - self.0;
-    let n = u128::from(base) | u128::from(delta) << 51;
-    n.to_le_bytes()[0..11].try_into().unwrap()
+    let n = u128::from(base) | u128::from(delta) << 55;
+    n.to_le_bytes()[0..14].try_into().unwrap()
   }
 }
 
@@ -492,6 +492,14 @@ impl Entry for Txid {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn test_sat_range_load_store() {
+    let sat_range = (50 * 100_000_000  as u64, 105_000_000 * 100_000_000 as u64) as SatRange;
+    let stored_bytes = sat_range.store();
+    let loaded_sat_range = SatRange::load(stored_bytes);
+    assert_eq!(sat_range, loaded_sat_range);
+  }
 
   #[test]
   fn inscription_entry() {

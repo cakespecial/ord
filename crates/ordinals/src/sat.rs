@@ -1,4 +1,4 @@
-use {super::*, std::num::ParseFloatError};
+use {super::*, std::num::ParseFloatError, rust_decimal::Decimal};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Display, Ord, PartialOrd, Deserialize, Serialize)]
 #[serde(transparent)]
@@ -6,7 +6,7 @@ pub struct Sat(pub u64);
 
 impl Sat {
   pub const LAST: Self = Self(Self::SUPPLY - 1);
-  pub const SUPPLY: u64 = 2099999997690000;
+  pub const SUPPLY: u64 = 20999999976900000;
 
   pub fn n(self) -> u64 {
     self.0
@@ -17,8 +17,19 @@ impl Sat {
   }
 
   pub fn height(self) -> Height {
-    self.epoch().starting_height()
-      + u32::try_from(self.epoch_position() / self.epoch().subsidy()).unwrap()
+    if self.epoch() > epoch::Epoch(0) {
+      self.epoch().starting_height()
+        + u32::try_from(self.epoch_position() / self.epoch().subsidy()).unwrap()        
+    } else {
+      let position = self.epoch_position();
+      if position < 50 * 100_000_000 {
+        Height(0)
+      } else if position < (105_000_000 + 50) * 100_000_000   {
+        Height(1)
+      } else {
+        Height(u32::try_from((position - Epoch::FRACTAL_EPOCH_0_OFFSET) / self.epoch().subsidy()).unwrap())
+      }
+    }
   }
 
   pub fn cycle(self) -> u32 {
@@ -26,11 +37,11 @@ impl Sat {
   }
 
   pub fn nineball(self) -> bool {
-    self.n() >= 50 * COIN_VALUE * 9 && self.n() < 50 * COIN_VALUE * 10
+    self.n() >= 25 * COIN_VALUE * 9 + Epoch::FRACTAL_EPOCH_0_OFFSET && self.n() < 25 * COIN_VALUE * 10 + Epoch::FRACTAL_EPOCH_0_OFFSET
   }
 
   pub fn percentile(self) -> String {
-    format!("{}%", (self.0 as f64 / Self::LAST.0 as f64) * 100.0)
+    format!("{}%", ((Decimal::new(self.0 as i64, 0) / Decimal::new(Self::LAST.0 as i64, 0)) * Decimal::new(100, 0)).to_string())
   }
 
   pub fn epoch(self) -> Epoch {
@@ -38,11 +49,22 @@ impl Sat {
   }
 
   pub fn period(self) -> u32 {
-    self.height().n() / DIFFCHANGE_INTERVAL
+    self.height().n() / Epoch::FRACTAL_DIFFCHANGE_INTERVAL
   }
 
   pub fn third(self) -> u64 {
-    self.epoch_position() % self.epoch().subsidy()
+    if self.epoch() > epoch::Epoch(0) {
+      self.epoch_position() % self.epoch().subsidy()
+    } else {
+      let position = self.epoch_position();
+      if position < 50 * 100_000_000 {
+        position
+      } else if position < (105_000_000 + 50) * 100_000_000   {
+        position - 50 * 100_000_000
+      } else {
+        (position - Epoch::FRACTAL_EPOCH_0_OFFSET) % self.epoch().subsidy()
+      }
+    }
   }
 
   pub fn epoch_position(self) -> u64 {
@@ -62,7 +84,13 @@ impl Sat {
   /// much faster.
   pub fn common(self) -> bool {
     let epoch = self.epoch();
-    (self.0 - epoch.starting_sat().0) % epoch.subsidy() != 0
+    if self.0 > 0 && self.0 < 50 * 100_000_000 {
+      true
+    }else if self.0 > 50 * 100_000_000 && self.0 < (105_000_000 + 50) * 100_000_000 {
+      true
+    } else{
+      (self.0 - epoch.starting_sat().0) % epoch.subsidy() != 0
+    }
   }
 
   pub fn coin(self) -> bool {
@@ -140,7 +168,7 @@ impl Sat {
       .parse::<u32>()
       .map_err(|source| ErrorKind::ParseInt { source }.error(degree))?;
 
-    if epoch_offset >= SUBSIDY_HALVING_INTERVAL {
+    if epoch_offset >= Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL {
       return Err(ErrorKind::EpochOffset.error(degree));
     }
 
@@ -152,27 +180,27 @@ impl Sat {
       .parse::<u32>()
       .map_err(|source| ErrorKind::ParseInt { source }.error(degree))?;
 
-    if period_offset >= DIFFCHANGE_INTERVAL {
+    if period_offset >= Epoch::FRACTAL_DIFFCHANGE_INTERVAL {
       return Err(ErrorKind::PeriodOffset.error(degree));
     }
 
     let cycle_start_epoch = cycle_number * CYCLE_EPOCHS;
 
-    const HALVING_INCREMENT: u32 = SUBSIDY_HALVING_INTERVAL % DIFFCHANGE_INTERVAL;
+    const HALVING_INCREMENT: u32 = Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL % Epoch::FRACTAL_DIFFCHANGE_INTERVAL;
 
     // For valid degrees the relationship between epoch_offset and period_offset
     // will increment by 336 every halving.
-    let relationship = period_offset + SUBSIDY_HALVING_INTERVAL * CYCLE_EPOCHS - epoch_offset;
+    let relationship = period_offset + Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL * CYCLE_EPOCHS - epoch_offset;
 
     if relationship % HALVING_INCREMENT != 0 {
       return Err(ErrorKind::EpochPeriodMismatch.error(degree));
     }
 
-    let epochs_since_cycle_start = relationship % DIFFCHANGE_INTERVAL / HALVING_INCREMENT;
+    let epochs_since_cycle_start = relationship % Epoch::FRACTAL_DIFFCHANGE_INTERVAL / HALVING_INCREMENT;
 
     let epoch = cycle_start_epoch + epochs_since_cycle_start;
 
-    let height = Height(epoch * SUBSIDY_HALVING_INTERVAL + epoch_offset);
+    let height = Height(epoch * Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL + epoch_offset);
 
     let (block_offset, rest) = match rest.split_once('‴') {
       Some((block_offset, rest)) => (
@@ -224,24 +252,24 @@ impl Sat {
 
     let percentile_string = percentile;
 
-    let percentile = percentile[..percentile.len() - 1]
-      .parse::<f64>()
-      .map_err(|source| ErrorKind::ParseFloat { source }.error(percentile))?;
+    let d_percentile = percentile[..percentile.len() - 1]
+      .parse::<Decimal>()
+      .map_err(|_source| ErrorKind::ParseDecimal.error(percentile))?;
 
-    if percentile < 0.0 {
+    if d_percentile < Decimal::new(0, 0) {
       return Err(ErrorKind::Percentile.error(percentile_string));
     }
 
-    let last = Sat::LAST.n() as f64;
+    let last = Decimal::new(Sat::LAST.n() as i64,0);
 
-    let n = (percentile / 100.0 * last).round();
+    let n = (d_percentile /  Decimal::new(100, 0) * last).round();
 
     if n > last {
       return Err(ErrorKind::Percentile.error(percentile_string));
     }
-
+    let u64n = n.to_string().parse::<u64>().map_err(|source| ErrorKind::ParseInt { source }.error(percentile))?;
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    Ok(Sat(n as u64))
+    Ok(Sat(u64n))
   }
 }
 
@@ -274,6 +302,7 @@ pub enum ErrorKind {
   EpochPeriodMismatch,
   ParseInt { source: ParseIntError },
   ParseFloat { source: ParseFloatError },
+  ParseDecimal,
 }
 
 impl ErrorKind {
@@ -302,10 +331,11 @@ impl Display for ErrorKind {
       Self::EpochOffset => write!(f, "invalid epoch offset"),
       Self::EpochPeriodMismatch => write!(
         f,
-        "relationship between epoch offset and period offset must be multiple of 336"
+        "relationship between epoch offset and period offset must be multiple of 3360"
       ),
       Self::ParseInt { source } => write!(f, "invalid integer: {source}"),
       Self::ParseFloat { source } => write!(f, "invalid float: {source}"),
+      Self::ParseDecimal => write!(f, "invalid float to decimal"),
     }
   }
 }
@@ -376,27 +406,28 @@ mod tests {
   fn height() {
     assert_eq!(Sat(0).height(), 0);
     assert_eq!(Sat(1).height(), 0);
-    assert_eq!(Sat(Epoch(0).subsidy()).height(), 1);
-    assert_eq!(Sat(Epoch(0).subsidy() * 2).height(), 2);
+    assert_eq!(Sat(50 * 100_000_000).height(), 1);
+    assert_eq!(Sat(Epoch(0).subsidy() * 2 + Epoch::FRACTAL_EPOCH_0_OFFSET).height(), 2);
     assert_eq!(
       Epoch(2).starting_sat().height(),
-      SUBSIDY_HALVING_INTERVAL * 2
+      Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL * 2
     );
     assert_eq!(Sat(50 * COIN_VALUE).height(), 1);
-    assert_eq!(Sat(2099999997689999).height(), 6929999);
-    assert_eq!(Sat(2099999997689998).height(), 6929998);
+    assert_eq!(Sat(20999999976899999).height(), 67199999);
+    assert_eq!(Sat(20999999976899998).height(), 67199998);
   }
 
   #[test]
   fn name() {
-    assert_eq!(Sat(0).name(), "nvtdijuwxlp");
-    assert_eq!(Sat(1).name(), "nvtdijuwxlo");
-    assert_eq!(Sat(26).name(), "nvtdijuwxkp");
-    assert_eq!(Sat(27).name(), "nvtdijuwxko");
-    assert_eq!(Sat(2099999997689999).name(), "a");
-    assert_eq!(Sat(2099999997689999 - 1).name(), "b");
-    assert_eq!(Sat(2099999997689999 - 25).name(), "z");
-    assert_eq!(Sat(2099999997689999 - 26).name(), "aa");
+    assert_eq!(Sat(0).name(), "erssqpdkejvd");
+    assert_eq!(Sat(1).name(), "erssqpdkejvc");
+    assert_eq!(Sat(26).name(), "erssqpdkejud");
+    assert_eq!(Sat(27).name(), "erssqpdkejuc");
+    assert_eq!(parse("a").unwrap(), Sat(20999999976899999));
+    assert_eq!(Sat(20999999976899999).name(), "a");
+    assert_eq!(Sat(20999999976899999 - 1).name(), "b");
+    assert_eq!(Sat(20999999976899999 - 25).name(), "z");
+    assert_eq!(Sat(20999999976899999 - 26).name(), "aa");
   }
 
   #[test]
@@ -415,47 +446,47 @@ mod tests {
     assert_eq!(Sat(50 * COIN_VALUE).degree().to_string(), "0°1′1″0‴");
     assert_eq!(Sat(50 * COIN_VALUE + 1).degree().to_string(), "0°1′1″1‴");
     assert_eq!(
-      Sat(50 * COIN_VALUE * u64::from(DIFFCHANGE_INTERVAL) - 1)
+      Sat(25 * COIN_VALUE * u64::from(Epoch::FRACTAL_DIFFCHANGE_INTERVAL) - 1 + Epoch::FRACTAL_EPOCH_0_OFFSET)
         .degree()
         .to_string(),
-      "0°2015′2015″4999999999‴"
+      "0°20159′20159″2499999999‴"
     );
     assert_eq!(
-      Sat(50 * COIN_VALUE * u64::from(DIFFCHANGE_INTERVAL))
+      Sat(25 * COIN_VALUE * u64::from(Epoch::FRACTAL_DIFFCHANGE_INTERVAL) + Epoch::FRACTAL_EPOCH_0_OFFSET)
         .degree()
         .to_string(),
-      "0°2016′0″0‴"
+      "0°20160′0″0‴"
     );
     assert_eq!(
-      Sat(50 * COIN_VALUE * u64::from(DIFFCHANGE_INTERVAL) + 1)
+      Sat(25 * COIN_VALUE * u64::from(Epoch::FRACTAL_DIFFCHANGE_INTERVAL) + 1 + Epoch::FRACTAL_EPOCH_0_OFFSET)
         .degree()
         .to_string(),
-      "0°2016′0″1‴"
+      "0°20160′0″1‴"
     );
     assert_eq!(
-      Sat(50 * COIN_VALUE * u64::from(SUBSIDY_HALVING_INTERVAL) - 1)
+      Sat(25 * COIN_VALUE * u64::from(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL) - 1 + Epoch::FRACTAL_EPOCH_0_OFFSET)
         .degree()
         .to_string(),
-      "0°209999′335″4999999999‴"
+      "0°2099999′3359″2499999999‴"
     );
     assert_eq!(
-      Sat(50 * COIN_VALUE * u64::from(SUBSIDY_HALVING_INTERVAL))
+      Sat(25 * COIN_VALUE * u64::from(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL) + Epoch::FRACTAL_EPOCH_0_OFFSET)
         .degree()
         .to_string(),
-      "0°0′336″0‴"
+      "0°0′3360″0‴"
     );
     assert_eq!(
-      Sat(50 * COIN_VALUE * u64::from(SUBSIDY_HALVING_INTERVAL) + 1)
+      Sat(25 * COIN_VALUE * u64::from(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL) + 1 + Epoch::FRACTAL_EPOCH_0_OFFSET)
         .degree()
         .to_string(),
-      "0°0′336″1‴"
+      "0°0′3360″1‴"
     );
     assert_eq!(
-      Sat(2067187500000000 - 1).degree().to_string(),
-      "0°209999′2015″156249999‴"
+      Sat(20835937500000000 - 1).degree().to_string(),
+      "0°2099999′20159″78124999‴"
     );
-    assert_eq!(Sat(2067187500000000).degree().to_string(), "1°0′0″0‴");
-    assert_eq!(Sat(2067187500000000 + 1).degree().to_string(), "1°0′0″1‴");
+    assert_eq!(Sat(20835937500000000).degree().to_string(), "1°0′0″0‴");
+    assert_eq!(Sat(20835937500000000 + 1).degree().to_string(), "1°0′0″1‴");
   }
 
   #[test]
@@ -473,26 +504,27 @@ mod tests {
     //     "Sat at height {height} did not round-trip from degree {degree} successfully"
     //   );
     // }
-    assert_eq!(Sat(1054200000000000).degree().to_string(), "0°1680′0″0‴");
-    assert_eq!(parse("0°1680′0″0‴").unwrap(), 1054200000000000);
+    assert_eq!(Sat(1054200000000000 + Epoch::FRACTAL_EPOCH_0_OFFSET).degree().to_string(), "0°421680′18480″0‴");
+    assert_eq!(parse("0°421680′18480″0‴").unwrap(), 1054200000000000 + Epoch::FRACTAL_EPOCH_0_OFFSET);
     assert_eq!(
-      Sat(1914226250000000).degree().to_string(),
-      "0°122762′794″0‴"
+      Sat(1914226250000000 + Epoch::FRACTAL_EPOCH_0_OFFSET).degree().to_string(),
+      "0°765690′19770″1250000000‴"
     );
-    assert_eq!(parse("0°122762′794″0‴").unwrap(), 1914226250000000);
+    assert_eq!(parse("0°765690′19770″1250000000‴").unwrap(), 1914226250000000 + Epoch::FRACTAL_EPOCH_0_OFFSET);
   }
 
   #[test]
   fn period() {
     assert_eq!(Sat(0).period(), 0);
-    assert_eq!(Sat(10080000000000).period(), 1);
-    assert_eq!(Sat(2099999997689999).period(), 3437);
-    assert_eq!(Sat(10075000000000).period(), 0);
-    assert_eq!(Sat(10080000000000 - 1).period(), 0);
-    assert_eq!(Sat(10080000000000).period(), 1);
-    assert_eq!(Sat(10080000000000 + 1).period(), 1);
-    assert_eq!(Sat(10085000000000).period(), 1);
-    assert_eq!(Sat(2099999997689999).period(), 3437);
+    assert_eq!(Height(Epoch::FRACTAL_DIFFCHANGE_INTERVAL).starting_sat(),Sat(10550400000000000));
+    assert_eq!(Sat(10550400000000000).period(), 1);
+    assert_eq!(Sat(20999999976899999).period(), 3333);
+    assert_eq!(Sat(10540400000000000).period(), 0);
+    assert_eq!(Sat(10550400000000000 - 1).period(), 0);
+    assert_eq!(Sat(10550400000000000).period(), 1);
+    assert_eq!(Sat(10550400000000000 + 1).period(), 1);
+    assert_eq!(Sat(10555400000000000).period(), 1);
+    assert_eq!(Sat(20999999976899999).period(), 3333);
   }
 
   #[test]
@@ -500,10 +532,10 @@ mod tests {
     assert_eq!(Sat(0).epoch(), 0);
     assert_eq!(Sat(1).epoch(), 0);
     assert_eq!(
-      Sat(50 * COIN_VALUE * u64::from(SUBSIDY_HALVING_INTERVAL)).epoch(),
+      Sat(25 * COIN_VALUE * u64::from(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL) + Epoch::FRACTAL_EPOCH_0_OFFSET).epoch(),
       1
     );
-    assert_eq!(Sat(2099999997689999).epoch(), 32);
+    assert_eq!(Sat(20999999976899999).epoch(), 31);
   }
 
   #[test]
@@ -522,8 +554,8 @@ mod tests {
       Sat(Height(0).subsidy() - 1).third(),
       Height(0).subsidy() - 1
     );
-    assert_eq!(Sat(Height(0).subsidy()).third(), 0);
-    assert_eq!(Sat(Height(0).subsidy() + 1).third(), 1);
+    assert_eq!(Sat(Height(2).subsidy() + Epoch::FRACTAL_EPOCH_0_OFFSET + 50 * 100_000_000).third(), 0);
+    assert_eq!(Sat(Height(2).subsidy() + Epoch::FRACTAL_EPOCH_0_OFFSET + 50 * 100_000_000 + 1).third(), 1);
     assert_eq!(
       Sat(Epoch(1).starting_sat().n() + Epoch(1).subsidy()).third(),
       0
@@ -589,9 +621,14 @@ mod tests {
     assert_eq!(parse("0.0").unwrap(), 0);
     assert_eq!(parse("0.1").unwrap(), 1);
     assert_eq!(parse("1.0").unwrap(), 50 * COIN_VALUE);
-    assert_eq!(parse("6929999.0").unwrap(), 2099999997689999);
+    assert_eq!(parse("67199999.0").unwrap(), 20999999976899999);
+    assert!(parse("0.4999999999").is_ok());
     assert!(parse("0.5000000000").is_err());
-    assert!(parse("6930000.0").is_err());
+    assert!(parse("1.10500000000000000").is_err());
+    assert!(parse("1.10499999999999999").is_ok());
+    assert!(parse("2.2499999999").is_ok());
+    assert!(parse("2.4999999999").is_err());
+    assert!(parse("67200000.0").is_err());
   }
 
   #[test]
@@ -599,32 +636,31 @@ mod tests {
     assert_eq!(parse("0°0′0″0‴").unwrap(), 0);
     assert_eq!(parse("0°0′0″").unwrap(), 0);
     assert_eq!(parse("0°0′0″1‴").unwrap(), 1);
-    assert_eq!(parse("0°2015′2015″0‴").unwrap(), 10075000000000);
-    assert_eq!(parse("0°2016′0″0‴").unwrap(), 10080000000000);
-    assert_eq!(parse("0°2017′1″0‴").unwrap(), 10085000000000);
-    assert_eq!(parse("0°2016′0″1‴").unwrap(), 10080000000001);
-    assert_eq!(parse("0°2017′1″1‴").unwrap(), 10085000000001);
-    assert_eq!(parse("0°209999′335″0‴").unwrap(), 1049995000000000);
-    assert_eq!(parse("0°0′336″0‴").unwrap(), 1050000000000000);
-    assert_eq!(parse("0°0′672″0‴").unwrap(), 1575000000000000);
-    assert_eq!(parse("0°209999′1007″0‴").unwrap(), 1837498750000000);
-    assert_eq!(parse("0°0′1008″0‴").unwrap(), 1837500000000000);
-    assert_eq!(parse("1°0′0″0‴").unwrap(), 2067187500000000);
-    assert_eq!(parse("2°0′0″0‴").unwrap(), 2099487304530000);
-    assert_eq!(parse("3°0′0″0‴").unwrap(), 2099991988080000);
-    assert_eq!(parse("4°0′0″0‴").unwrap(), 2099999873370000);
-    assert_eq!(parse("5°0′0″0‴").unwrap(), 2099999996220000);
-    assert_eq!(parse("5°0′336″0‴").unwrap(), 2099999997060000);
-    assert_eq!(parse("5°0′672″0‴").unwrap(), 2099999997480000);
-    assert_eq!(parse("5°1′673″0‴").unwrap(), 2099999997480001);
-    assert_eq!(parse("5°209999′1007″0‴").unwrap(), 2099999997689999);
+    assert_eq!(parse("0°20159′20159″0‴").unwrap(), 10550397500000000);
+    assert_eq!(parse("0°20160′0″0‴").unwrap(), 10550400000000000);
+    assert_eq!(parse("0°20161′1″0‴").unwrap(), 10550402500000000);
+    assert_eq!(parse("0°20160′0″1‴").unwrap(), 10550400000000001);
+    assert_eq!(parse("0°20161′1″1‴").unwrap(), 10550402500000001);
+    assert_eq!(parse("0°2099999′3359″0‴").unwrap(), 15749997500000000);
+    assert_eq!(parse("0°0′3360″0‴").unwrap(), 15750000000000000);
+    assert_eq!(parse("0°0′6720″0‴").unwrap(), 18375000000000000);
+    assert_eq!(parse("0°2099999′10079″0‴").unwrap(), 19687499375000000);
+    assert_eq!(parse("0°0′10080″0‴").unwrap(), 19687500000000000);
+    assert_eq!(parse("1°0′0″0‴").unwrap(), 20835937500000000);
+    assert_eq!(parse("2°0′0″0‴").unwrap(), 20997436521600000);
+    assert_eq!(parse("3°0′0″0‴").unwrap(), 20999959934100000);
+    assert_eq!(parse("4°0′0″0‴").unwrap(), 20999999359500000);
+    assert_eq!(parse("5°0′0″0‴").unwrap(), 20999999970600000);
+    assert_eq!(parse("5°0′3360″0‴").unwrap(), 20999999974800000);
+    assert_eq!(parse("5°2099999′6719″0‴").unwrap(), 20999999976899999);
+    assert_eq!(Sat(20999999976899999).degree().to_string(), "5°2099999′6719″0‴" );
   }
 
   #[test]
   fn from_str_number() {
     assert_eq!(parse("0").unwrap(), 0);
-    assert_eq!(parse("2099999997689999").unwrap(), 2099999997689999);
-    assert!(parse("2099999997690000").is_err());
+    assert_eq!(parse("20999999976899999").unwrap(), 20999999976899999);
+    assert!(parse("20999999976900000").is_err());
   }
 
   #[test]
@@ -635,68 +671,69 @@ mod tests {
 
   #[test]
   fn from_str_degree_invalid_epoch_offset() {
-    assert!(parse("0°209999′335″0‴").is_ok());
-    assert!(parse("0°210000′336″0‴").is_err());
+    assert!(parse("0°2099999′3359″0‴").is_ok());
+    assert!(parse("0°2100000′3360″0‴").is_err());
   }
 
   #[test]
   fn from_str_degree_invalid_period_offset() {
-    assert!(parse("0°2015′2015″0‴").is_ok());
-    assert!(parse("0°2016′2016″0‴").is_err());
+    assert!(parse("0°20159′20159″0‴").is_ok());
+    assert!(parse("0°20160′20160″0‴").is_err());
   }
 
   #[test]
   fn from_str_degree_invalid_block_offset() {
     assert!(parse("0°0′0″4999999999‴").is_ok());
     assert!(parse("0°0′0″5000000000‴").is_err());
-    assert!(parse("0°209999′335″4999999999‴").is_ok());
-    assert!(parse("0°0′336″4999999999‴").is_err());
+    assert!(parse("0°2099999′3359″2499999999‴").is_ok());
+    assert!(parse("0°0′3360″2499999999‴").is_err());
   }
 
   #[test]
   fn from_str_degree_invalid_period_block_relationship() {
-    assert!(parse("0°2015′2015″0‴").is_ok());
-    assert!(parse("0°2016′0″0‴").is_ok());
-    assert!(parse("0°2016′1″0‴").is_err());
-    assert!(parse("0°0′336″0‴").is_ok());
+    assert!(parse("0°20159′20159″0‴").is_ok());
+    assert!(parse("0°20160′0″0‴").is_ok());
+    assert!(parse("0°20160′1″0‴").is_err());
+    assert!(parse("0°0′3360″0‴").is_ok());
   }
 
   #[test]
   fn from_str_degree_post_distribution() {
-    assert!(parse("5°209999′1007″0‴").is_ok());
-    assert!(parse("5°0′1008″0‴").is_err());
+    assert!(parse("5°2099999′6719″0‴").is_ok());
+    assert!(parse("5°0′6721″0‴").is_err());
   }
 
   #[test]
   fn from_str_name() {
-    assert_eq!(parse("nvtdijuwxlp").unwrap(), 0);
-    assert_eq!(parse("a").unwrap(), 2099999997689999);
+    assert_eq!(Sat(20999999976899999).name(), "a");
+    assert_eq!(parse("erssqpdkejvd").unwrap(), 0);
+    assert_eq!(parse("a").unwrap(), 20999999976899999);
     assert!(parse("(").is_err());
     assert!(parse("").is_err());
-    assert!(parse("nvtdijuwxlq").is_err());
+    assert!(parse("erssqpdkejve").is_err());
     assert!(parse("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").is_err());
   }
 
   #[test]
   fn cycle() {
     assert_eq!(
-      SUBSIDY_HALVING_INTERVAL * CYCLE_EPOCHS % DIFFCHANGE_INTERVAL,
+      Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL * CYCLE_EPOCHS % Epoch::FRACTAL_DIFFCHANGE_INTERVAL,
       0
     );
 
     for i in 1..CYCLE_EPOCHS {
-      assert_ne!(i * SUBSIDY_HALVING_INTERVAL % DIFFCHANGE_INTERVAL, 0);
+      assert_ne!(i * Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL % Epoch::FRACTAL_DIFFCHANGE_INTERVAL, 0);
     }
 
     assert_eq!(
-      CYCLE_EPOCHS * SUBSIDY_HALVING_INTERVAL % DIFFCHANGE_INTERVAL,
+      CYCLE_EPOCHS * Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL % Epoch::FRACTAL_DIFFCHANGE_INTERVAL,
       0
     );
 
     assert_eq!(Sat(0).cycle(), 0);
-    assert_eq!(Sat(2067187500000000 - 1).cycle(), 0);
-    assert_eq!(Sat(2067187500000000).cycle(), 1);
-    assert_eq!(Sat(2067187500000000 + 1).cycle(), 1);
+    assert_eq!(Sat(20835937500000000 - 1).cycle(), 0);
+    assert_eq!(Sat(20835937500000000).cycle(), 1);
+    assert_eq!(Sat(20835937500000000 + 1).cycle(), 1);
   }
 
   #[test]
@@ -710,7 +747,7 @@ mod tests {
   #[test]
   fn percentile() {
     assert_eq!(Sat(0).percentile(), "0%");
-    assert_eq!(Sat(Sat::LAST.n() / 2).percentile(), "49.99999999999998%");
+    assert_eq!(Sat(Sat::LAST.n() / 2).percentile(), "49.999999999999997619047616430%");
     assert_eq!(Sat::LAST.percentile(), "100%");
   }
 
@@ -765,7 +802,7 @@ mod tests {
   #[test]
   fn nineball() {
     for height in 0..10 {
-      let sat = Sat(height * 50 * COIN_VALUE);
+      let sat = Height(height).starting_sat();
       assert_eq!(
         sat.nineball(),
         sat.height() == 9,

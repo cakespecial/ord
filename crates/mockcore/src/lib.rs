@@ -224,7 +224,7 @@ impl Handle {
 
   #[track_caller]
   pub fn mine_blocks(&self, n: u64) -> Vec<Block> {
-    self.mine_blocks_with_subsidy(n, 50 * COIN_VALUE)
+    self.mine_blocks_with_subsidy(n, 25 * COIN_VALUE)
   }
 
   #[track_caller]

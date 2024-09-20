@@ -1,12 +1,12 @@
 [package]
 name = "ord"
 description = "◉ Ordinal wallet and block explorer"
-version = "0.20.0"
+version = "0.20.0-f1"
 license = "CC0-1.0"
 edition = "2021"
 autotests = false
-homepage = "https://github.com/ordinals/ord"
-repository = "https://github.com/ordinals/ord"
+homepage = "https://github.com/fractal-bitcoin/ord"
+repository = "https://github.com/fractal-bitcoin/ord"
 autobins = false
 rust-version = "1.76.0"
 
@@ -47,7 +47,7 @@ mime = "0.3.16"
 mime_guess = "2.0.4"
 miniscript = "10.0.0"
 mp4 = "0.14.0"
-ord-bitcoincore-rpc = "0.17.2"
+ord-fractald-rpc = "0.17.2"
 ordinals = { version = "0.0.10", path = "crates/ordinals" }
 redb = "2.1.1"
 ref-cast = "1.0.23"

@@ -52,7 +52,7 @@ impl UtxoEntry {
       offset += varint_len;
 
       let num_sat_ranges: usize = num_sat_ranges.try_into().unwrap();
-      let sat_ranges_len = num_sat_ranges * 11;
+      let sat_ranges_len = num_sat_ranges * 14;
       sats = Sats::Ranges(&self.bytes[offset..offset + sat_ranges_len]);
       offset += sat_ranges_len;
     } else {
@@ -130,7 +130,7 @@ impl<'a> ParsedUtxoEntry<'a> {
       Sats::Value(value) => value,
       Sats::Ranges(ranges) => {
         let mut value = 0;
-        for chunk in ranges.chunks_exact(11) {
+        for chunk in ranges.chunks_exact(14) {
           let range = SatRange::load(chunk.try_into().unwrap());
           value += range.1 - range.0;
         }
@@ -212,8 +212,8 @@ impl UtxoEntryBuf {
 
   pub fn push_sat_ranges(&mut self, sat_ranges: &[u8], index: &Index) {
     assert!(index.index_sats);
-    let num_sat_ranges = sat_ranges.len() / 11;
-    assert!(num_sat_ranges * 11 == sat_ranges.len());
+    let num_sat_ranges = sat_ranges.len() / 14;
+    assert!(num_sat_ranges * 14 == sat_ranges.len());
     varint::encode_to_vec(num_sat_ranges.try_into().unwrap(), &mut self.vec);
     self.vec.extend(sat_ranges);
 

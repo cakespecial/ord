@@ -4,47 +4,49 @@ use super::*;
 pub struct Epoch(pub u32);
 
 impl Epoch {
-  pub const STARTING_SATS: [Sat; 34] = [
+  pub const STARTING_SATS: [Sat; 33] = [
     Sat(0),
-    Sat(1050000000000000),
-    Sat(1575000000000000),
-    Sat(1837500000000000),
-    Sat(1968750000000000),
-    Sat(2034375000000000),
-    Sat(2067187500000000),
-    Sat(2083593750000000),
-    Sat(2091796875000000),
-    Sat(2095898437500000),
-    Sat(2097949218750000),
-    Sat(2098974609270000),
-    Sat(2099487304530000),
-    Sat(2099743652160000),
-    Sat(2099871825870000),
-    Sat(2099935912620000),
-    Sat(2099967955890000),
-    Sat(2099983977420000),
-    Sat(2099991988080000),
-    Sat(2099995993410000),
-    Sat(2099997995970000),
-    Sat(2099998997250000),
-    Sat(2099999497890000),
-    Sat(2099999748210000),
-    Sat(2099999873370000),
-    Sat(2099999935950000),
-    Sat(2099999967240000),
-    Sat(2099999982780000),
-    Sat(2099999990550000),
-    Sat(2099999994330000),
-    Sat(2099999996220000),
-    Sat(2099999997060000),
-    Sat(2099999997480000),
+    Sat(15750000000000000),
+    Sat(18375000000000000),
+    Sat(19687500000000000),
+    Sat(20343750000000000),
+    Sat(20671875000000000),
+    Sat(20835937500000000),
+    Sat(20917968750000000),
+    Sat(20958984375000000),
+    Sat(20979492187500000),
+    Sat(20989746092700000),
+    Sat(20994873045300000),
+    Sat(20997436521600000),
+    Sat(20998718258700000),
+    Sat(20999359126200000),
+    Sat(20999679558900000),
+    Sat(20999839774200000),
+    Sat(20999919880800000),
+    Sat(20999959934100000),
+    Sat(20999979959700000),
+    Sat(20999989972500000),
+    Sat(20999994978900000),
+    Sat(20999997482100000),
+    Sat(20999998733700000),
+    Sat(20999999359500000),
+    Sat(20999999672400000),
+    Sat(20999999827800000),
+    Sat(20999999905500000),
+    Sat(20999999943300000),
+    Sat(20999999962200000),
+    Sat(20999999970600000),
+    Sat(20999999974800000),
     Sat(Sat::SUPPLY),
   ];
-  pub const FIRST_POST_SUBSIDY: Epoch = Self(33);
+  pub const FIRST_POST_SUBSIDY: Epoch = Self(32);
+  pub const FRACTAL_SUBSIDY_HALVING_INTERVAL: u32 = 2_100_000;
+  pub const FRACTAL_DIFFCHANGE_INTERVAL: u32 = 20160;
+  pub const FRACTAL_EPOCH_0_OFFSET: u64 = 10_500_000_000_000_000;
 
   pub fn subsidy(self) -> u64 {
     if self < Self::FIRST_POST_SUBSIDY {
-      (50 * COIN_VALUE) >> self.0
+      (25 * COIN_VALUE) >> self.0
     } else {
       0
     }
@@ -57,7 +59,7 @@ impl Epoch {
   }
 
   pub fn starting_height(self) -> Height {
-    Height(self.0 * SUBSIDY_HALVING_INTERVAL)
+    Height(self.0 * Self::FRACTAL_SUBSIDY_HALVING_INTERVAL)
   }
 }
 
@@ -133,17 +135,15 @@ impl From<Sat> for Epoch {
       Epoch(30)
     } else if sat < Self::STARTING_SATS[32] {
       Epoch(31)
-    } else if sat < Self::STARTING_SATS[33] {
-      Epoch(32)
     } else {
-      Epoch(33)
+      Epoch(32)
     }
   }
 }
 
 impl From<Height> for Epoch {
   fn from(height: Height) -> Self {
-    Self(height.0 / SUBSIDY_HALVING_INTERVAL)
+    Self(height.0 / Self::FRACTAL_SUBSIDY_HALVING_INTERVAL)
   }
 }
 
@@ -156,14 +156,14 @@ mod tests {
     assert_eq!(Epoch(0).starting_sat(), 0);
     assert_eq!(
       Epoch(1).starting_sat(),
-      Epoch(0).subsidy() * u64::from(SUBSIDY_HALVING_INTERVAL)
+      Epoch(0).subsidy() * u64::from(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL) + Epoch::FRACTAL_EPOCH_0_OFFSET
     );
     assert_eq!(
       Epoch(2).starting_sat(),
-      (Epoch(0).subsidy() + Epoch(1).subsidy()) * u64::from(SUBSIDY_HALVING_INTERVAL)
+      (Epoch(0).subsidy() + Epoch(1).subsidy()) * u64::from(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL) + Epoch::FRACTAL_EPOCH_0_OFFSET
     );
+    assert_eq!(Epoch(32).starting_sat(), Sat(Sat::SUPPLY));
     assert_eq!(Epoch(33).starting_sat(), Sat(Sat::SUPPLY));
-    assert_eq!(Epoch(34).starting_sat(), Sat(Sat::SUPPLY));
   }
 
   #[test]
@@ -172,35 +172,39 @@ mod tests {
 
     let mut epoch_sats = Vec::new();
 
-    for epoch in 0..34 {
+    for epoch in 0..33 {
       epoch_sats.push(sat);
-      sat += u64::from(SUBSIDY_HALVING_INTERVAL) * Epoch(epoch).subsidy();
+      if epoch == 0{
+        sat += u64::from(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL) * Epoch(epoch).subsidy() + Epoch::FRACTAL_EPOCH_0_OFFSET
+      } else {
+        sat += u64::from(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL) * Epoch(epoch).subsidy();
+      }  
     }
 
     assert_eq!(Epoch::STARTING_SATS.as_slice(), epoch_sats);
-    assert_eq!(Epoch::STARTING_SATS.len(), 34);
+    assert_eq!(Epoch::STARTING_SATS.len(), 33);
   }
 
   #[test]
   fn subsidy() {
-    assert_eq!(Epoch(0).subsidy(), 5000000000);
-    assert_eq!(Epoch(1).subsidy(), 2500000000);
-    assert_eq!(Epoch(32).subsidy(), 1);
-    assert_eq!(Epoch(33).subsidy(), 0);
+    assert_eq!(Epoch(0).subsidy(), 2500000000);
+    assert_eq!(Epoch(1).subsidy(), 1250000000);
+    assert_eq!(Epoch(31).subsidy(), 1);
+    assert_eq!(Epoch(32).subsidy(), 0);
   }
 
   #[test]
   fn starting_height() {
     assert_eq!(Epoch(0).starting_height(), 0);
-    assert_eq!(Epoch(1).starting_height(), SUBSIDY_HALVING_INTERVAL);
-    assert_eq!(Epoch(2).starting_height(), SUBSIDY_HALVING_INTERVAL * 2);
+    assert_eq!(Epoch(1).starting_height(), Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL);
+    assert_eq!(Epoch(2).starting_height(), Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL * 2);
   }
 
   #[test]
   fn from_height() {
     assert_eq!(Epoch::from(Height(0)), 0);
-    assert_eq!(Epoch::from(Height(SUBSIDY_HALVING_INTERVAL)), 1);
-    assert_eq!(Epoch::from(Height(SUBSIDY_HALVING_INTERVAL) + 1), 1);
+    assert_eq!(Epoch::from(Height(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL)), 1);
+    assert_eq!(Epoch::from(Height(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL) + 1), 1);
   }
 
   #[test]
@@ -225,7 +229,7 @@ mod tests {
     assert_eq!(Epoch::from(Sat(1)), 0);
     assert_eq!(Epoch::from(Epoch(1).starting_sat()), 1);
     assert_eq!(Epoch::from(Epoch(1).starting_sat() + 1), 1);
-    assert_eq!(Epoch::from(Sat(u64::MAX)), 33);
+    assert_eq!(Epoch::from(Sat(u64::MAX)), 32);
   }
 
   #[test]

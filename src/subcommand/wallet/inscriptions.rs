@@ -14,6 +14,8 @@ pub(crate) fn run(wallet: Wallet) -> SubcommandResult {
     Chain::Regtest => "http://localhost/inscription/",
     Chain::Signet => "https://signet.ordinals.com/inscription/",
     Chain::Testnet => "https://testnet.ordinals.com/inscription/",
+    Chain::FractalMainnet => "https://ordinals.fractalbitcoin.io/inscription/",
+    Chain::FractalTestnet => "https://ordinals-testnet.fractalbitcoin.io/inscription/",
   };
 
   let mut output = Vec::new();

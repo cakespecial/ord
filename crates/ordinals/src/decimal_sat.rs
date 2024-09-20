@@ -42,9 +42,9 @@ mod tests {
       }
     );
     assert_eq!(
-      Sat(2099999997689999).decimal(),
+      Sat(20999999976899999).decimal(),
       DecimalSat {
-        height: Height(6929999),
+        height: Height(67199999),
         offset: 0
       }
     );

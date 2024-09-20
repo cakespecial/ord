@@ -104,34 +104,34 @@ mod tests {
     assert_eq!(Sat(50 * COIN_VALUE + 1).rarity(), Rarity::Common);
 
     assert_eq!(
-      Sat(50 * COIN_VALUE * u64::from(DIFFCHANGE_INTERVAL) - 1).rarity(),
+      Sat(25 * COIN_VALUE * u64::from(Epoch::FRACTAL_DIFFCHANGE_INTERVAL) + Epoch::FRACTAL_EPOCH_0_OFFSET - 1 ).rarity(),
       Rarity::Common
     );
     assert_eq!(
-      Sat(50 * COIN_VALUE * u64::from(DIFFCHANGE_INTERVAL)).rarity(),
+      Sat(25 * COIN_VALUE * u64::from(Epoch::FRACTAL_DIFFCHANGE_INTERVAL) + Epoch::FRACTAL_EPOCH_0_OFFSET).rarity(),
       Rarity::Rare
     );
     assert_eq!(
-      Sat(50 * COIN_VALUE * u64::from(DIFFCHANGE_INTERVAL) + 1).rarity(),
+      Sat(25 * COIN_VALUE * u64::from(Epoch::FRACTAL_DIFFCHANGE_INTERVAL) + Epoch::FRACTAL_EPOCH_0_OFFSET + 1).rarity(),
       Rarity::Common
     );
 
     assert_eq!(
-      Sat(50 * COIN_VALUE * u64::from(SUBSIDY_HALVING_INTERVAL) - 1).rarity(),
+      Sat(25 * COIN_VALUE * u64::from(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL) + Epoch::FRACTAL_EPOCH_0_OFFSET - 1).rarity(),
       Rarity::Common
     );
     assert_eq!(
-      Sat(50 * COIN_VALUE * u64::from(SUBSIDY_HALVING_INTERVAL)).rarity(),
+      Sat(25 * COIN_VALUE * u64::from(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL) + Epoch::FRACTAL_EPOCH_0_OFFSET).rarity(),
       Rarity::Epic
     );
     assert_eq!(
-      Sat(50 * COIN_VALUE * u64::from(SUBSIDY_HALVING_INTERVAL) + 1).rarity(),
+      Sat(25 * COIN_VALUE * u64::from(Epoch::FRACTAL_SUBSIDY_HALVING_INTERVAL) + Epoch::FRACTAL_EPOCH_0_OFFSET + 1).rarity(),
       Rarity::Common
     );
 
-    assert_eq!(Sat(2067187500000000 - 1).rarity(), Rarity::Common);
-    assert_eq!(Sat(2067187500000000).rarity(), Rarity::Legendary);
-    assert_eq!(Sat(2067187500000000 + 1).rarity(), Rarity::Common);
+    assert_eq!(Sat(20835937500000000 - 1).rarity(), Rarity::Common);
+    assert_eq!(Sat(20835937500000000).rarity(), Rarity::Legendary);
+    assert_eq!(Sat(20835937500000000 + 1).rarity(), Rarity::Common);
   }
 
   #[test]

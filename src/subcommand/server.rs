@@ -988,7 +988,7 @@ impl Server {
       let runes_balances = index.get_aggregated_rune_balances_for_outputs(&outputs)?;
 
       Ok(if accept_json {
-        Json(AddressResponse {
+        Json(api::AddressInfo {
           sat_balance,
           outputs,
           inscriptions,

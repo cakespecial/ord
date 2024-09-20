@@ -459,7 +459,7 @@ impl Settings {
 
     let ord_chain = self.chain();
 
-    if rpc_chain != ord_chain {
+    if ord_chain != Chain::FractalMainnet && ord_chain != Chain::FractalTestnet && rpc_chain != ord_chain {
       bail!("Bitcoin RPC server is on {rpc_chain} but ord is on {ord_chain}");
     }
 
@@ -700,7 +700,7 @@ mod tests {
   #[test]
   fn cookie_file_overrides_network() {
     assert_eq!(
-      parse(&["--cookie-file=/foo/bar", "--chain=signet"])
+      parse(&["--cookie-file=/foo/bar", "--chain=fractalMainnet"])
         .cookie_file()
         .unwrap(),
       Path::new("/foo/bar")

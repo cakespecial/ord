@@ -21,6 +21,21 @@ currently prioritized issues.
 Join [the Discord server](https://discord.gg/87cjuz4FYg) to chat with fellow
 ordinal degenerates.
 
+Fractal Bitcoin
+------
+Run on Fractal Bitcoin Mainnet
+```
+ord --chain=fractal-mainnet server
+```
+
+Run on Fractal Bitcoin Testnet
+```
+ord --chain=fractal-testnet server
+```
+
+Please do not set `first_inscription_height` and  `no_index_inscriptions` 
+
+
 Donate
 ------
 
