@@ -4,10 +4,10 @@ use {
   batch::ParentInfo,
   bitcoin::secp256k1::{All, Secp256k1},
   bitcoin::{
-    bip32::{ChildNumber, DerivationPath, ExtendedPrivKey, Fingerprint},
+    bip32::{ChildNumber, DerivationPath, Fingerprint, Xpriv},
     psbt::Psbt,
   },
-  bitcoincore_rpc::bitcoincore_rpc_json::{Descriptor, ImportDescriptors, Timestamp},
+  bitcoincore_rpc::bitcoincore_rpc_json::{ImportDescriptors, Timestamp},
   entry::{EtchingEntry, EtchingEntryValue},
   fee_rate::FeeRate,
   index::entry::Entry,
@@ -45,6 +45,22 @@ impl From<Statistic> for u64 {
   fn from(statistic: Statistic) -> Self {
     statistic as u64
   }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
+pub struct Descriptor {
+  pub desc: String,
+  pub timestamp: bitcoincore_rpc::bitcoincore_rpc_json::Timestamp,
+  pub active: bool,
+  pub internal: Option<bool>,
+  pub range: Option<(u64, u64)>,
+  pub next: Option<u64>,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
+pub struct ListDescriptorsResult {
+  pub wallet_name: String,
+  pub descriptors: Vec<Descriptor>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -200,18 +216,16 @@ impl Wallet {
     )
   }
 
-  pub(crate) fn get_parent_info(
-    &self,
-    parent: Option<InscriptionId>,
-  ) -> Result<Option<ParentInfo>> {
-    if let Some(parent_id) = parent {
-      if !self.inscription_exists(parent_id)? {
+  pub(crate) fn get_parent_info(&self, parents: &[InscriptionId]) -> Result<Vec<ParentInfo>> {
+    let mut parent_info = Vec::new();
+    for parent_id in parents {
+      if !self.inscription_exists(*parent_id)? {
         return Err(anyhow!("parent {parent_id} does not exist"));
       }
 
       let satpoint = self
         .inscription_info
-        .get(&parent_id)
+        .get(parent_id)
         .ok_or_else(|| anyhow!("parent {parent_id} not in wallet"))?
         .satpoint;
 
@@ -221,15 +235,15 @@ impl Wallet {
         .ok_or_else(|| anyhow!("parent {parent_id} not in wallet"))?
         .clone();
 
-      Ok(Some(ParentInfo {
+      parent_info.push(ParentInfo {
         destination: self.get_change_address()?,
-        id: parent_id,
+        id: *parent_id,
         location: satpoint,
         tx_out,
-      }))
-    } else {
-      Ok(None)
+      });
     }
+
+    Ok(parent_info)
   }
 
   pub(crate) fn get_runic_outputs(&self) -> Result<BTreeSet<OutPoint>> {
@@ -320,13 +334,13 @@ impl Wallet {
     Ok(
       if let Some(commit_tx) = self
         .bitcoin_client()
-        .get_transaction(&commit.txid(), Some(true))
+        .get_transaction(&commit.compute_txid(), Some(true))
         .into_option()?
       {
         let current_confirmations = u32::try_from(commit_tx.info.confirmations)?;
         if self
           .bitcoin_client()
-          .get_tx_out(&commit.txid(), 0, Some(true))?
+          .get_tx_out(&commit.compute_txid(), 0, Some(true))?
           .is_none()
         {
           Maturity::CommitSpent(commit_tx.info.txid)
@@ -353,7 +367,7 @@ impl Wallet {
     eprintln!(
       "Waiting for rune {} commitment {} to mature…",
       rune,
-      entry.commit.txid()
+      entry.commit.compute_txid()
     );
 
     let mut pending_confirmations: u32 = Runestone::COMMIT_CONFIRMATIONS.into();
@@ -403,7 +417,7 @@ impl Wallet {
       Err(err) => {
         return Err(anyhow!(
           "Failed to send reveal transaction: {err}\nCommit tx {} will be recovered once mined",
-          entry.commit.txid()
+          entry.commit.compute_txid()
         ))
       }
     };
@@ -465,7 +479,7 @@ impl Wallet {
       })
       .collect::<Vec<ImportDescriptors>>();
 
-    client.import_descriptors(descriptors)?;
+    client.call::<serde_json::Value>("importdescriptors", &[serde_json::to_value(descriptors)?])?;
 
     Ok(())
   }
@@ -483,7 +497,7 @@ impl Wallet {
 
     let secp = Secp256k1::new();
 
-    let master_private_key = ExtendedPrivKey::new_master(network, &seed)?;
+    let master_private_key = Xpriv::new_master(network, &seed)?;
 
     let fingerprint = master_private_key.fingerprint(&secp);
 
@@ -515,7 +529,7 @@ impl Wallet {
     settings: &Settings,
     secp: &Secp256k1<All>,
     origin: (Fingerprint, DerivationPath),
-    derived_private_key: ExtendedPrivKey,
+    derived_private_key: Xpriv,
     change: bool,
   ) -> Result {
     let secret_key = DescriptorSecretKey::XPrv(DescriptorXKey {
@@ -529,14 +543,14 @@ impl Wallet {
 
     let public_key = secret_key.to_public(secp)?;
 
-    let mut key_map = HashMap::new();
+    let mut key_map = BTreeMap::new();
     key_map.insert(public_key.clone(), secret_key);
 
     let descriptor = miniscript::descriptor::Descriptor::new_tr(public_key, None)?;
 
     settings
       .bitcoin_rpc_client(Some(name.clone()))?
-      .import_descriptors(vec![ImportDescriptors {
+      .import_descriptors(ImportDescriptors {
         descriptor: descriptor.to_string_with_secret(&key_map),
         timestamp: Timestamp::Now,
         active: Some(true),
@@ -544,7 +558,7 @@ impl Wallet {
         next_index: None,
         internal: Some(change),
         label: None,
-      }])?;
+      })?;
 
     Ok(())
   }
@@ -724,5 +738,64 @@ impl Wallet {
         })
         .collect::<Result<Vec<(Rune, EtchingEntry)>, StorageError>>()?,
     )
+  }
+
+  pub(super) fn sign_transaction(
+    &self,
+    unsigned_transaction: Transaction,
+    dry_run: bool,
+  ) -> Result<(Txid, String, u64)> {
+    let unspent_outputs = self.utxos();
+
+    let (txid, psbt) = if dry_run {
+      let psbt = self
+        .bitcoin_client()
+        .wallet_process_psbt(
+          &base64::engine::general_purpose::STANDARD
+            .encode(Psbt::from_unsigned_tx(unsigned_transaction.clone())?.serialize()),
+          Some(false),
+          None,
+          None,
+        )?
+        .psbt;
+
+      (unsigned_transaction.compute_txid(), psbt)
+    } else {
+      let psbt = self
+        .bitcoin_client()
+        .wallet_process_psbt(
+          &base64::engine::general_purpose::STANDARD
+            .encode(Psbt::from_unsigned_tx(unsigned_transaction.clone())?.serialize()),
+          Some(true),
+          None,
+          None,
+        )?
+        .psbt;
+
+      let signed_tx = self
+        .bitcoin_client()
+        .finalize_psbt(&psbt, None)?
+        .hex
+        .ok_or_else(|| anyhow!("unable to sign transaction"))?;
+
+      (
+        self.bitcoin_client().send_raw_transaction(&signed_tx)?,
+        psbt,
+      )
+    };
+
+    let mut fee = 0;
+    for txin in unsigned_transaction.input.iter() {
+      let Some(txout) = unspent_outputs.get(&txin.previous_output) else {
+        panic!("input {} not found in utxos", txin.previous_output);
+      };
+      fee += txout.value.to_sat();
+    }
+
+    for txout in unsigned_transaction.output.iter() {
+      fee = fee.checked_sub(txout.value.to_sat()).unwrap();
+    }
+
+    Ok((txid, psbt, fee))
   }
 }

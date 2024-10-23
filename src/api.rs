@@ -162,9 +162,9 @@ pub struct Output {
   pub inscriptions: Vec<InscriptionId>,
   pub runes: BTreeMap<SpacedRune, Pile>,
   pub sat_ranges: Option<Vec<(u64, u64)>>,
-  pub script_pubkey: String,
+  pub script_pubkey: ScriptBuf,
   pub spent: bool,
-  pub transaction: String,
+  pub transaction: Txid,
   pub value: u64,
 }
 
@@ -188,10 +188,10 @@ impl Output {
       inscriptions,
       runes,
       sat_ranges,
-      script_pubkey: tx_out.script_pubkey.to_asm_string(),
+      script_pubkey: tx_out.script_pubkey,
       spent,
-      transaction: outpoint.txid.to_string(),
-      value: tx_out.value,
+      transaction: outpoint.txid,
+      value: tx_out.value.to_sat(),
     }
   }
 }
@@ -225,4 +225,12 @@ pub struct SatInscriptions {
   pub ids: Vec<InscriptionId>,
   pub more: bool,
   pub page: u64,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct AddressInfo {
+  pub outputs: Vec<OutPoint>,
+  pub inscriptions: Vec<InscriptionId>,
+  pub sat_balance: u64,
+  pub runes_balances: Vec<(SpacedRune, Decimal, Option<char>)>,
 }

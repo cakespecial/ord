@@ -265,8 +265,8 @@ impl Server {
         .route("/rune/:rune", get(Self::rune))
         .route("/runes", get(Self::runes))
         .route("/runes/:page", get(Self::runes_paginated))
-        .route("/runes/balances", get(Self::runes_balances))
         .route("/sat/:sat", get(Self::sat))
+        .route("/satpoint/:satpoint", get(Self::satpoint))
         .route("/search", get(Self::search_by_query))
         .route("/search/*query", get(Self::search_by_path))
         .route("/static/*path", get(Self::static_asset))
@@ -763,6 +763,36 @@ impl Server {
     })
   }
 
+  async fn satpoint(
+    Extension(index): Extension<Arc<Index>>,
+    Path(satpoint): Path<SatPoint>,
+  ) -> ServerResult<Redirect> {
+    task::block_in_place(|| {
+      let (output_info, _) = index
+        .get_output_info(satpoint.outpoint)?
+        .ok_or_not_found(|| format!("satpoint {satpoint}"))?;
+
+      let Some(ranges) = output_info.sat_ranges else {
+        return Err(ServerError::NotFound("sat index required".into()));
+      };
+
+      let mut total = 0;
+      for (start, end) in ranges {
+        let size = end - start;
+        if satpoint.offset < total + size {
+          let sat = start + satpoint.offset - total;
+
+          return Ok(Redirect::to(&format!("/sat/{sat}")));
+        }
+        total += size;
+      }
+
+      Err(ServerError::NotFound(format!(
+        "satpoint {satpoint} not found"
+      )))
+    })
+  }
+
   async fn outputs(
     Extension(index): Extension<Arc<Index>>,
     AcceptJson(accept_json): AcceptJson,
@@ -889,34 +919,6 @@ impl Server {
     })
   }
 
-  async fn runes_balances(
-    Extension(index): Extension<Arc<Index>>,
-    AcceptJson(accept_json): AcceptJson,
-  ) -> ServerResult {
-    task::block_in_place(|| {
-      Ok(if accept_json {
-        Json(
-          index
-            .get_rune_balance_map()?
-            .into_iter()
-            .map(|(rune, balances)| {
-              (
-                rune,
-                balances
-                  .into_iter()
-                  .map(|(outpoint, pile)| (outpoint, pile.amount))
-                  .collect(),
-              )
-            })
-            .collect::<BTreeMap<SpacedRune, BTreeMap<OutPoint, u128>>>(),
-        )
-        .into_response()
-      } else {
-        StatusCode::NOT_FOUND.into_response()
-      })
-    })
-  }
-
   async fn home(
     Extension(server_config): Extension<Arc<ServerConfig>>,
     Extension(index): Extension<Arc<Index>>,
@@ -988,7 +990,7 @@ impl Server {
       let runes_balances = index.get_aggregated_rune_balances_for_outputs(&outputs)?;
 
       Ok(if accept_json {
-        Json(AddressResponse {
+        Json(api::AddressInfo {
           sat_balance,
           outputs,
           inscriptions,
@@ -1228,7 +1230,7 @@ impl Server {
           id: inscription_id,
           number: entry.inscription_number,
           output: satpoint.outpoint,
-          value: output.as_ref().map(|o| o.value),
+          value: output.as_ref().map(|o| o.value.to_sat()),
           sat: entry.sat,
           satpoint,
           timestamp: timestamp(entry.timestamp.into()).timestamp(),
@@ -1246,9 +1248,12 @@ impl Server {
   ) -> ServerResult {
     task::block_in_place(|| {
       Ok(if accept_json {
-        Json(index.status()?).into_response()
+        Json(index.status(server_config.json_api_enabled)?).into_response()
       } else {
-        index.status()?.page(server_config).into_response()
+        index
+          .status(server_config.json_api_enabled)?
+          .page(server_config)
+          .into_response()
       })
     })
   }
@@ -1297,6 +1302,8 @@ impl Server {
         Ok(Redirect::to(&format!("/rune/{rune}")))
       } else if re::ADDRESS.is_match(query) {
         Ok(Redirect::to(&format!("/address/{query}")))
+      } else if re::SATPOINT.is_match(query) {
+        Ok(Redirect::to(&format!("/satpoint/{query}")))
       } else {
         Ok(Redirect::to(&format!("/sat/{query}")))
       }
@@ -2969,11 +2976,76 @@ mod tests {
   }
 
   #[test]
-  fn html_runes_balances_not_found() {
-    TestServer::builder()
+  fn search_by_satpoint_returns_sat() {
+    let server = TestServer::builder()
       .chain(Chain::Regtest)
-      .build()
-      .assert_response("/runes/balances", StatusCode::NOT_FOUND, "");
+      .index_sats()
+      .build();
+
+    let txid = server.mine_blocks(1)[0].txdata[0].compute_txid();
+
+    server.assert_redirect(
+      &format!("/search/{txid}:0:0"),
+      &format!("/satpoint/{txid}:0:0"),
+    );
+
+    server.assert_redirect(
+      &format!("/search?query={txid}:0:0"),
+      &format!("/satpoint/{txid}:0:0"),
+    );
+
+    server.assert_redirect(
+      &format!("/satpoint/{txid}:0:0"),
+      &format!("/sat/{}", 50 * COIN_VALUE),
+    );
+
+    server.assert_response_regex("/search/1:2:3", StatusCode::BAD_REQUEST, ".*");
+  }
+
+  #[test]
+  fn satpoint_returns_sat_in_multiple_ranges() {
+    let server = TestServer::builder()
+      .chain(Chain::Regtest)
+      .index_sats()
+      .build();
+
+    server.mine_blocks(1);
+
+    let split = TransactionTemplate {
+      inputs: &[(1, 0, 0, Default::default())],
+      outputs: 2,
+      fee: 0,
+      ..default()
+    };
+
+    server.core.broadcast_tx(split);
+
+    server.mine_blocks(1);
+
+    let merge = TransactionTemplate {
+      inputs: &[(2, 0, 0, Default::default()), (2, 1, 0, Default::default())],
+      fee: 0,
+      ..default()
+    };
+
+    let txid = server.core.broadcast_tx(merge);
+
+    server.mine_blocks(1);
+
+    server.assert_redirect(
+      &format!("/satpoint/{txid}:0:0"),
+      &format!("/sat/{}", 100 * COIN_VALUE),
+    );
+
+    server.assert_redirect(
+      &format!("/satpoint/{txid}:0:{}", 50 * COIN_VALUE),
+      &format!("/sat/{}", 50 * COIN_VALUE),
+    );
+
+    server.assert_redirect(
+      &format!("/satpoint/{txid}:0:{}", 50 * COIN_VALUE - 1),
+      &format!("/sat/{}", 150 * COIN_VALUE - 1),
+    );
   }
 
   #[test]
@@ -3261,8 +3333,6 @@ mod tests {
   <dd>no</dd>
   <dt>supply</dt>
   <dd>340282366920938463463374607431768211455\u{A0}%</dd>
-  <dt>mint progress</dt>
-  <dd>100%</dd>
   <dt>premine</dt>
   <dd>340282366920938463463374607431768211455\u{A0}%</dd>
   <dt>premine percentage</dt>
@@ -3590,9 +3660,9 @@ mod tests {
       server.get_json::<api::Output>(format!("/output/{output}")),
       api::Output {
         value: 5000000000,
-        script_pubkey: address.script_pubkey().to_asm_string(),
+        script_pubkey: address.script_pubkey(),
         address: Some(uncheck(&address)),
-        transaction: txid.to_string(),
+        transaction: txid,
         sat_ranges: None,
         indexed: true,
         inscriptions: Vec::new(),
@@ -3709,12 +3779,16 @@ mod tests {
   <dd>false</dd>
   <dt>address index</dt>
   <dd>false</dd>
+  <dt>inscription index</dt>
+  <dd>true</dd>
   <dt>rune index</dt>
   <dd>false</dd>
   <dt>sat index</dt>
   <dd>false</dd>
   <dt>transaction index</dt>
   <dd>false</dd>
+  <dt>json api</dt>
+  <dd>true</dd>
   <dt>git branch</dt>
   <dd>.*</dd>
   <dt>git commit</dt>
@@ -3877,7 +3951,7 @@ mod tests {
 </dl>
 <h2>1 Sat Range</h2>
 <ul class=monospace>
-  <li><a href=/sat/0 class=mythic>0</a>-<a href=/sat/5000000000>5000000000</a><a href=/range/0/5000000000> \\(5000000000 sats\\)</a></li>
+  <li><a href=/sat/0 class=mythic>0</a>-<a href=/sat/5000000000 class=uncommon>5000000000</a> \\(5000000000 sats\\)</li>
 </ul>.*"
         ),
       );
@@ -3922,7 +3996,7 @@ mod tests {
 </dl>
 <h2>1 Sat Range</h2>
 <ul class=monospace>
-  <li><a href=/sat/5000000000 class=uncommon>5000000000</a>-<a href=/sat/10000000000>10000000000</a><a href=/range/5000000000/10000000000> \\(5000000000 sats\\)</a></li>
+  <li><a href=/sat/5000000000 class=uncommon>5000000000</a>-<a href=/sat/10000000000 class=uncommon>10000000000</a> \\(5000000000 sats\\)</li>
 </ul>.*"
       ),
     );
@@ -3977,7 +4051,7 @@ mod tests {
 <dl>
   <dt>inscriptions</dt>
   <dd class=thumbnails>
-    <a href=/inscription/.*><iframe sandbox=allow-scripts scrolling=no loading=lazy src=/preview/.*></iframe></a>
+    <a href=/inscription/.*><iframe sandbox=allow-scripts loading=lazy src=/preview/.*></iframe></a>
   </dd>.*",
     );
   }
@@ -4174,7 +4248,7 @@ mod tests {
     let test_server = TestServer::new();
 
     let coinbase_tx = test_server.mine_blocks(1)[0].txdata[0].clone();
-    let txid = coinbase_tx.txid();
+    let txid = coinbase_tx.compute_txid();
 
     test_server.assert_response_regex(
       format!("/tx/{txid}"),
@@ -7195,6 +7269,16 @@ next
         value: Some(50 * COIN_VALUE),
         address: None
       }
+    );
+  }
+
+  #[test]
+  fn unknown_output_returns_404() {
+    let server = TestServer::builder().chain(Chain::Regtest).build();
+    server.assert_response(
+      "/output/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef:123",
+      StatusCode::NOT_FOUND,
+      "output 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef:123 not found",
     );
   }
 }

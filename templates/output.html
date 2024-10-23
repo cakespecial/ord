@@ -25,7 +25,7 @@
     </table>
   </dd>
 %% }
-  <dt>value</dt><dd>{{ self.output.value }}</dd>
+  <dt>value</dt><dd>{{ self.output.value.to_sat() }}</dd>
   <dt>script pubkey</dt><dd class=monospace>{{ self.output.script_pubkey.to_asm_string() }}</dd>
 %% if let Ok(address) = self.chain.address_from_script(&self.output.script_pubkey ) {
   <dt>address</dt><dd class=monospace><a href=/address/{{address}}>{{ address }}</a></dd>
@@ -41,7 +41,7 @@
 %% if value == 1 {
   <li><a href=/sat/{{start}} class={{Sat(*start).rarity()}}>{{start}}</a></li>
 %% } else {
-  <li><a href=/sat/{{start}} class={{Sat(*start).rarity()}}>{{start}}</a>-<a href=/sat/{{end}}>{{end}}</a><a href=/range/{{start}}/{{end}}> ({{value}} sats)</a></li>
+  <li><a href=/sat/{{start}} class={{Sat(*start).rarity()}}>{{start}}</a>-<a href=/sat/{{end}} class={{Sat(*end).rarity()}}>{{end}}</a> ({{value}} sats)</li>
 %% }
 %% }
 </ul>
