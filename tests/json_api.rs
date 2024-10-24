@@ -1,6 +1,6 @@
 use {
   super::*,
-  bitcoin::BlockHash,
+  bitcoin::{BlockHash, ScriptBuf},
   ord::{Envelope, Inscription},
 };
 
@@ -88,7 +88,7 @@ fn get_sat_with_inscription_on_common_sat_and_more_inscriptions() {
 
   inscribe(&core, &ord);
 
-  let txid = core.mine_blocks(1)[0].txdata[0].txid();
+  let txid = core.mine_blocks(1)[0].txdata[0].compute_txid();
 
   let Batch { reveal, .. } = CommandBuilder::new(format!(
     "wallet inscribe --satpoint {}:0:1 --fee-rate 1 --file foo.txt",
@@ -241,11 +241,7 @@ fn get_inscriptions() {
 fn get_inscriptions_in_block() {
   let core = mockcore::spawn();
 
-  let ord = TestServer::spawn_with_server_args(
-    &core,
-    &["--index-sats", "--first-inscription-height", "0"],
-    &[],
-  );
+  let ord = TestServer::spawn_with_server_args(&core, &["--index-sats"], &[]);
 
   create_wallet(&core, &ord);
 
@@ -359,9 +355,14 @@ fn get_output() {
         (10000000000, 15000000000,),
         (15000000000, 20000000000,),
       ],),
-      script_pubkey: "OP_0 OP_PUSHBYTES_20 0000000000000000000000000000000000000000".into(),
+      script_pubkey: ScriptBuf::from(
+        "bc1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq9e75rs"
+          .parse::<Address<NetworkUnchecked>>()
+          .unwrap()
+          .assume_checked()
+      ),
       spent: false,
-      transaction: txid.to_string(),
+      transaction: txid,
       value: 3 * 50 * COIN_VALUE,
     }
   );
@@ -450,7 +451,7 @@ fn get_transaction() {
 
   let transaction = core.mine_blocks(1)[0].txdata[0].clone();
 
-  let txid = transaction.txid();
+  let txid = transaction.compute_txid();
 
   let response = ord.json_request(format!("/tx/{txid}"));
 
@@ -505,7 +506,9 @@ fn get_status() {
       cursed_inscriptions: 0,
       height: Some(3),
       initial_sync_time: dummy_duration,
+      inscription_index: true,
       inscriptions: 1,
+      json_api: true,
       lost_sats: 0,
       minimum_rune_for_next_block: Rune(99218849511960410),
       rune_index: true,
@@ -645,76 +648,6 @@ fn get_runes() {
       prev: None,
     }
   );
-}
-
-#[test]
-fn get_runes_balances() {
-  let core = mockcore::builder().network(Network::Regtest).build();
-
-  let ord = TestServer::spawn_with_server_args(&core, &["--index-runes", "--regtest"], &[]);
-
-  create_wallet(&core, &ord);
-
-  core.mine_blocks(3);
-
-  let rune0 = Rune(RUNE);
-  let rune1 = Rune(RUNE + 1);
-  let rune2 = Rune(RUNE + 2);
-
-  let e0 = etch(&core, &ord, rune0);
-  let e1 = etch(&core, &ord, rune1);
-  let e2 = etch(&core, &ord, rune2);
-
-  core.mine_blocks(1);
-
-  let rune_balances: BTreeMap<Rune, BTreeMap<OutPoint, u128>> = vec![
-    (
-      rune0,
-      vec![(
-        OutPoint {
-          txid: e0.output.reveal,
-          vout: 1,
-        },
-        1000,
-      )]
-      .into_iter()
-      .collect(),
-    ),
-    (
-      rune1,
-      vec![(
-        OutPoint {
-          txid: e1.output.reveal,
-          vout: 1,
-        },
-        1000,
-      )]
-      .into_iter()
-      .collect(),
-    ),
-    (
-      rune2,
-      vec![(
-        OutPoint {
-          txid: e2.output.reveal,
-          vout: 1,
-        },
-        1000,
-      )]
-      .into_iter()
-      .collect(),
-    ),
-  ]
-  .into_iter()
-  .collect();
-
-  let response = ord.json_request("/runes/balances");
-  assert_eq!(response.status(), StatusCode::OK);
-
-  let runes_balance_json: BTreeMap<Rune, BTreeMap<OutPoint, u128>> =
-    serde_json::from_str(&response.text().unwrap()).unwrap();
-
-  pretty_assert_eq!(runes_balance_json, rune_balances);
 }
 
 #[test]

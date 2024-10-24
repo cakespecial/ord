@@ -56,7 +56,12 @@ impl WalletConstructor {
       }
 
       if client.get_wallet_info()?.private_keys_enabled {
-        Wallet::check_descriptors(&self.name, client.list_descriptors(None)?.descriptors)?;
+        Wallet::check_descriptors(
+          &self.name,
+          client
+            .call::<ListDescriptorsResult>("listdescriptors", &[serde_json::Value::Null])?
+            .descriptors,
+        )?;
       }
 
       client
@@ -170,7 +175,7 @@ impl WalletConstructor {
           let outpoint = OutPoint::new(utxo.txid, utxo.vout);
           let txout = TxOut {
             script_pubkey: utxo.script_pub_key,
-            value: utxo.amount.to_sat(),
+            value: utxo.amount,
           };
 
           (outpoint, txout)
@@ -199,7 +204,7 @@ impl WalletConstructor {
       utxos.insert(
         OutPoint::new(outpoint.txid, outpoint.vout),
         TxOut {
-          value: tx_out.value.to_sat(),
+          value: tx_out.value,
           script_pubkey: ScriptBuf::from_bytes(tx_out.script_pub_key.hex),
         },
       );
