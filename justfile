@@ -46,6 +46,9 @@ deploy-mainnet-bravo branch='master' remote='ordinals/ord': \
 deploy-mainnet-charlie branch='master' remote='ordinals/ord': \
   (deploy branch remote 'main' 'charlie.ordinals.net')
 
+deploy-regtest branch='master' remote='ordinals/ord': \
+  (deploy branch remote 'regtest' 'regtest.ordinals.net')
+
 deploy-signet branch='master' remote='ordinals/ord': \
   (deploy branch remote 'signet' 'signet.ordinals.net')
 
@@ -53,6 +56,7 @@ deploy-testnet branch='master' remote='ordinals/ord': \
   (deploy branch remote 'test' 'testnet.ordinals.net')
 
 deploy-all: \
+  deploy-regtest \
   deploy-testnet \
   deploy-signet \
   deploy-mainnet-alpha \
@@ -60,6 +64,7 @@ deploy-all: \
   deploy-mainnet-charlie
 
 delete-indices: \
+  (delete-index "regtest.ordinals.net") \
   (delete-index "signet.ordinals.net") \
   (delete-index "testnet.ordinals.net")
 
@@ -157,6 +162,9 @@ publish-tag-and-crate revision='master':
 
 outdated:
   cargo outdated --root-deps-only --workspace
+
+unused:
+  cargo +nightly udeps --workspace
 
 update-modern-normalize:
   curl \
