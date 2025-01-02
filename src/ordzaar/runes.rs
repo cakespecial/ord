@@ -41,13 +41,16 @@ pub struct RuneDetail {
 }
 
 impl RuneOutpoint {
-  pub fn from_spaced_rune_pile(spaced_rune_piled: (SpacedRune, Pile)) -> Self {
-    Self {
-      spaced_rune: spaced_rune_piled.0,
-      amount: spaced_rune_piled.1.amount.to_string(),
-      divisibility: spaced_rune_piled.1.divisibility,
-      symbol: spaced_rune_piled.1.symbol,
-    }
+  pub fn from_spaced_rune_pile(spaced_rune_piled: BTreeMap<SpacedRune, Pile>) -> Vec<Self> {
+    spaced_rune_piled
+      .into_iter()
+      .map(|(spaced_rune, pile)| Self {
+        spaced_rune,
+        amount: pile.amount.to_string(),
+        divisibility: pile.divisibility,
+        symbol: pile.symbol,
+      })
+      .collect()
   }
 }
 
